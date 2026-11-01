@@ -1,0 +1,467 @@
+/*
+ * openScale
+ * Copyright (C) 2025 olie.xdev <olie.xdeveloper@googlemail.com>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+package com.health.openscale.ui.screen.dialog
+
+import android.widget.Toast
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import androidx.navigation.NavController
+import com.health.openscale.R
+import com.health.openscale.core.data.InputFieldType
+import com.health.openscale.core.data.MeasurementType
+import com.health.openscale.core.data.UserGoals
+import com.health.openscale.ui.components.RoundMeasurementIcon
+import com.health.openscale.ui.navigation.Routes
+import java.text.DateFormat
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.ZoneOffset
+import java.util.Date
+import java.util.Locale
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun UserGoalDialog(
+    navController: NavController,
+    existingUserGoal: UserGoals?,
+    allMeasurementTypes: List<MeasurementType>,
+    allGoalsOfCurrentUser: List<UserGoals>,
+    onDismiss: () -> Unit,
+    onConfirm: (
+        measurementTypeId: Int,
+        goalValue: Float,
+        goalTargetDate: Long?,
+        startDate: Long,
+    ) -> Unit,
+    onDelete: (userId: Int, measurementTypeId: Int) -> Unit,
+) {
+    val context = LocalContext.current
+    val resources = LocalResources.current
+    val isEditing = existingUserGoal != null
+
+    val targetableTypes = remember(allMeasurementTypes, allGoalsOfCurrentUser, isEditing) {
+        val baseTargetableTypes = allMeasurementTypes.filter {
+            (it.inputType == InputFieldType.FLOAT || it.inputType == InputFieldType.INT) && !it.isDerived
+        }
+
+        if (isEditing) {
+            baseTargetableTypes
+        } else {
+            val typesWithExistingGoalsIds = allGoalsOfCurrentUser.map { it.measurementTypeId }.toSet()
+            baseTargetableTypes.filter { it.id !in typesWithExistingGoalsIds }
+        }
+    }
+
+    var selectedTypeState by remember(targetableTypes, existingUserGoal, isEditing) {
+        mutableStateOf(
+            if (isEditing) {
+                allMeasurementTypes.find { it.id == existingUserGoal.measurementTypeId }
+            } else {
+                targetableTypes.firstOrNull()
+            }
+        )
+    }
+
+    var currentGoalValueString by remember(existingUserGoal, selectedTypeState?.id) {
+        mutableStateOf(
+            if (isEditing && selectedTypeState != null) {
+                existingUserGoal.goalValue?.toString()?.replace(',', '.') ?: ""
+            } else {
+                ""
+            }
+        )
+    }
+
+    var startDateMillis by remember(existingUserGoal) {
+        mutableStateOf(existingUserGoal?.startDate ?: todayStartOfDayMillis())
+    }
+    var showStartDatePicker by remember { mutableStateOf(false) }
+
+    val initialDateMillis = existingUserGoal?.goalTargetDate
+    var selectedDateMillis by remember { mutableStateOf(initialDateMillis) }
+    var showGoalDatePicker by remember { mutableStateOf(false) }
+
+    val dateFormat = remember { DateFormat.getDateInstance(DateFormat.SHORT, Locale.getDefault()) }
+    val formattedDate = remember(selectedDateMillis) {
+        selectedDateMillis?.let { dateFormat.format(Date(it)) }
+            ?: resources.getString(R.string.text_none)
+    }
+    val formattedStartDate = remember(startDateMillis) { dateFormat.format(Date(startDateMillis)) }
+
+    val dialogTitle = remember(isEditing, selectedTypeState) {
+        val typeName = selectedTypeState?.getDisplayName(context) ?: resources.getString(R.string.measurement_type_custom_default_name)
+        if (isEditing) {
+            resources.getString(R.string.dialog_title_edit_goal, typeName)
+        } else {
+            resources.getString(R.string.dialog_title_add_goal, typeName)
+        }
+    }
+
+    var showGoalInputArea by remember(isEditing, selectedTypeState) {
+        mutableStateOf(isEditing || (!isEditing && selectedTypeState != null))
+    }
+    var typeDropdownExpanded by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+
+    if (showDeleteDialog) {
+        val typeName = selectedTypeState?.getDisplayName(context)
+            ?: resources.getString(R.string.measurement_type_custom_default_name)
+        DeleteConfirmationDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            onConfirm = {
+                if (existingUserGoal != null) {
+                    onDelete(existingUserGoal.userId, existingUserGoal.measurementTypeId)
+                }
+                onDismiss()
+            },
+            title = stringResource(R.string.dialog_title_delete_goal, typeName),
+            text = stringResource(R.string.dialog_text_delete_goal)
+        )
+    }
+
+    if (showStartDatePicker) {
+        val startPickerState = rememberDatePickerState(
+            initialSelectedDateMillis = localStartOfDayToPickerMillis(startDateMillis)
+        )
+        DatePickerDialog(
+            onDismissRequest = { showStartDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    startPickerState.selectedDateMillis
+                        ?.let { startDateMillis = pickerMillisToLocalStartOfDay(it) }
+                    showStartDatePicker = false
+                }) {
+                    Text(stringResource(R.string.dialog_ok))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showStartDatePicker = false }) {
+                    Text(stringResource(R.string.cancel_button))
+                }
+            }
+        ) {
+            DatePicker(state = startPickerState)
+        }
+    }
+
+    if (showGoalDatePicker) {
+        val datePickerState = rememberDatePickerState(initialSelectedDateMillis = selectedDateMillis)
+        DatePickerDialog(
+            onDismissRequest = { showGoalDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    selectedDateMillis = datePickerState.selectedDateMillis
+                    showGoalDatePicker = false
+                }) {
+                    Text(stringResource(R.string.dialog_ok))
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        selectedDateMillis = null
+                        showGoalDatePicker = false
+                    }) {
+                        Text(stringResource(R.string.text_none))
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    TextButton(onClick = { showGoalDatePicker = false }) {
+                        Text(stringResource(R.string.cancel_button))
+                    }
+                }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
+
+    LaunchedEffect(selectedTypeState?.id, isEditing) {
+        if (!isEditing) {
+            currentGoalValueString = ""
+            showGoalInputArea = selectedTypeState != null
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(dialogTitle) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ExposedDropdownMenuBox(
+                        expanded = typeDropdownExpanded,
+                        onExpandedChange = {
+                            if (!isEditing && targetableTypes.isNotEmpty()) {
+                                typeDropdownExpanded = !typeDropdownExpanded
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        OutlinedTextField(
+                            value = selectedTypeState?.getDisplayName(context)
+                                ?: stringResource(if (targetableTypes.isEmpty()) R.string.info_no_targetable_types else R.string.placeholder_select_type),
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text(stringResource(R.string.measurement_type_label_name)) },
+                            leadingIcon = {
+                                selectedTypeState?.let {
+                                    RoundMeasurementIcon(
+                                        icon = it.icon.resource,
+                                        backgroundTint = Color(it.color),
+                                        size = 16.dp
+                                    )
+                                }
+                            },
+                            trailingIcon = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (selectedTypeState != null) {
+                                        IconButton(
+                                            onClick = {
+                                                selectedTypeState?.let {
+                                                    navController.navigate(Routes.measurementTypeDetail(typeId = it.id))
+                                                }
+                                            },
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Edit,
+                                                modifier = Modifier.size(20.dp),
+                                                contentDescription = stringResource(R.string.content_desc_edit_type)
+                                            )
+                                        }
+                                        Spacer(Modifier.width(4.dp))
+                                    }
+
+                                    if (!isEditing && targetableTypes.isNotEmpty()) {
+                                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = typeDropdownExpanded)
+                                        Spacer(Modifier.width(4.dp))
+                                    }
+                                }
+                            },
+                            modifier = Modifier
+                                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryEditable)
+                                .fillMaxWidth(),
+                            enabled = !isEditing && targetableTypes.isNotEmpty()
+                        )
+                        if (!isEditing && targetableTypes.isNotEmpty()) {
+                            ExposedDropdownMenu(
+                                expanded = typeDropdownExpanded,
+                                onDismissRequest = { typeDropdownExpanded = false }
+                            ) {
+                                targetableTypes.forEach { type ->
+                                    DropdownMenuItem(
+                                        text = { Text(type.getDisplayName(context)) },
+                                        leadingIcon = {
+                                            RoundMeasurementIcon(icon = type.icon.resource, backgroundTint = Color(type.color), size = 16.dp)
+                                        },
+                                        onClick = {
+                                            if (selectedTypeState?.id != type.id) {
+                                                selectedTypeState = type
+                                            }
+                                            typeDropdownExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (selectedTypeState != null && showGoalInputArea) {
+                    Box {
+                        OutlinedTextField(
+                            value = formattedStartDate,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text(stringResource(R.string.goal_start_date_label)) },
+                            modifier = Modifier.fillMaxWidth(),
+                            trailingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.DateRange,
+                                    contentDescription = stringResource(R.string.content_desc_select_date)
+                                )
+                            }
+                        )
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .clickable(onClick = {
+                                    showStartDatePicker = true
+                                })
+                        )
+                    }
+
+                    NumberInputField(
+                        initialValue = currentGoalValueString,
+                        inputType = selectedTypeState!!.inputType,
+                        unit = selectedTypeState!!.unit,
+                        onValueChange = { newValue ->
+                            currentGoalValueString = newValue
+                        },
+                        label = stringResource(R.string.measurement_type_label_goal)
+                    )
+
+                    Box {
+                        OutlinedTextField(
+                            value = formattedDate,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = {
+                                Text(
+                                    stringResource(
+                                        R.string.label_optional,
+                                        stringResource(R.string.goal_target_date_label),
+                                    )
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            trailingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.DateRange,
+                                    contentDescription = stringResource(R.string.content_desc_select_date)
+                                )
+                            }
+                        )
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .clickable(onClick = {
+                                    showGoalDatePicker = true
+                                })
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val type = selectedTypeState
+                    if (type == null) {
+                        Toast.makeText(context, R.string.toast_select_measurement_type, Toast.LENGTH_SHORT).show()
+                        return@TextButton
+                    }
+
+                    val goalValue = currentGoalValueString.parseInputValue()
+                    if (goalValue == null) {
+                        Toast.makeText(
+                            context,
+                            resources.getString(
+                                R.string.toast_invalid_number_format_short,
+                                type.getDisplayName(context),
+                            ),
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                        return@TextButton
+                    }
+
+                    onConfirm(type.id, goalValue, selectedDateMillis, startDateMillis)
+                    onDismiss()
+                },
+                enabled = selectedTypeState != null && currentGoalValueString.isNotBlank()
+            ) {
+                Text(stringResource(R.string.dialog_ok))
+            }
+        },
+        dismissButton = {
+            Row {
+                if (isEditing && selectedTypeState != null) {
+                    TextButton(
+                        onClick = { showDeleteDialog = true }
+                    ) {
+                        Text(
+                            stringResource(R.string.delete_button_label),
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
+                TextButton(onClick = onDismiss) {
+                    Text(stringResource(R.string.cancel_button))
+                }
+            }
+        }
+    )
+}
+
+/** Accepts both '.' and ',' as the decimal separator, like the numeric fields elsewhere. */
+private fun String.parseInputValue(): Float? =
+    takeIf { it.isNotBlank() }?.replace(',', '.')?.toFloatOrNull()
+
+private fun todayStartOfDayMillis(zone: ZoneId = ZoneId.systemDefault()): Long =
+    LocalDate.now(zone).atStartOfDay(zone).toInstant().toEpochMilli()
+
+/**
+ * The Material date picker hands back UTC midnight of the picked calendar day, but a start date is
+ * compared against measurement timestamps, which are local. Convert, so "12 March" means the local
+ * 12 March rather than a point that can land on the 11th or 13th east or west of UTC.
+ */
+private fun pickerMillisToLocalStartOfDay(pickerMillis: Long, zone: ZoneId = ZoneId.systemDefault()): Long =
+    Instant.ofEpochMilli(pickerMillis).atZone(ZoneOffset.UTC).toLocalDate()
+        .atStartOfDay(zone).toInstant().toEpochMilli()
+
+/** Inverse of [pickerMillisToLocalStartOfDay], so the picker opens on the stored day. */
+private fun localStartOfDayToPickerMillis(localMillis: Long, zone: ZoneId = ZoneId.systemDefault()): Long =
+    Instant.ofEpochMilli(localMillis).atZone(zone).toLocalDate()
+        .atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()

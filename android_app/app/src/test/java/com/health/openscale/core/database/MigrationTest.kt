@@ -1,0 +1,172 @@
+/*
+ * openScale
+ * Copyright (C) 2025 olie.xdev <olie.xdeveloper@googlemail.com>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+package com.health.openscale.core.database
+
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import com.google.common.truth.Truth.assertThat
+import com.health.openscale.core.data.ActivityLevel
+import com.health.openscale.core.data.GenderType
+import com.health.openscale.core.data.InputFieldType
+import com.health.openscale.core.data.MeasurementType
+import com.health.openscale.testutil.RoomTestSupport
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import org.junit.After
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import kotlin.math.abs
+
+/**
+ * Exercises the full migration chain end-to-end on the JVM (Robolectric): a hand-built
+ * legacy schema-v6 database is opened with all migrations, running MIGRATION_6_7 (the risky
+ * legacy rewrite) through MIGRATION_14_15 in sequence. Verifies the enum mapping and that
+ * data survives — the highest data-loss risk in the app.
+ */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
+class MigrationTest {
+
+    private val context: Context get() = ApplicationProvider.getApplicationContext()
+    private var db: AppDatabase? = null
+
+    @After
+    fun tearDown() {
+        db?.close()
+        context.getDatabasePath(AppDatabase.DATABASE_NAME).delete()
+    }
+
+    @Test
+    fun legacyV6_migratesToCurrent_mappingEnumsAndPreservingData() = runBlocking {
+        val dbFile = context.getDatabasePath(AppDatabase.DATABASE_NAME)
+        dbFile.parentFile?.mkdirs()
+        if (dbFile.exists()) dbFile.delete()
+
+        RoomTestSupport.writeLegacyV6Database(dbFile)
+
+        // Opening with the full migration chain runs MIGRATION_6_7 .. MIGRATION_14_15 in order.
+        val opened = RoomTestSupport.onDisk(context).also { db = it }
+        val repo = RoomTestSupport.repositoryFor(opened)
+
+        val users = repo.getAllUsers().first()
+        assertThat(users).hasSize(1)
+        val user = users.single()
+        assertThat(user.name).isEqualTo("legacy-user")
+        assertThat(user.gender).isEqualTo(GenderType.FEMALE)            // legacy gender=1 -> FEMALE
+        assertThat(user.activityLevel).isEqualTo(ActivityLevel.MODERATE) // legacy activityLevel=2 -> MODERATE
+        assertThat(user.heightCm).isWithin(0.1f).of(168f)
+
+        val measurements = repo.getMeasurementsWithValuesForUser(user.id).first()
+        assertThat(measurements).hasSize(1)
+        val weight = measurements.single().values
+            .mapNotNull { it.value.floatValue }
+            .firstOrNull { abs(it - 72.5f) < 0.1f }
+        assertThat(weight).isNotNull()
+
+        // The rewrite seeds the default measurement types.
+        val types = repo.getAllMeasurementTypes().first()
+        assertThat(types).isNotEmpty()
+
+        // Regression: 13_14 / 14_15 used to re-insert seven keys that 6_7 had already
+        // seeded (their INSERT OR IGNORE lost its conflict target when 12_13 dropped the
+        // unique index), leaving upgraded databases with 41 types instead of 34.
+        // MIGRATION_15_16 merges the duplicates and gives every row its identity.
+        assertThat(types).hasSize(MeasurementType.allKeys.size)
+        assertThat(types.map { it.identity }).containsNoDuplicates()
+        assertThat(types.all { it.isBuiltIn() }).isTrue()
+    }
+
+    /**
+     * Regression for issue #1410: a backup from an old v2.x build carries a legacy user_version
+     * below 6 (e.g. v2.3.1 == 5). Before the fix the app registered migrations only from 6, so
+     * Room had no path and crashed on the first launch after restore. Starting from version 1
+     * exercises the restored MIGRATION_1_2 .. MIGRATION_5_6 and then the 6_7.. rewrite chain.
+     */
+    @Test
+    fun legacyV1_migratesToCurrent_preservingData() = runBlocking {
+        val dbFile = context.getDatabasePath(AppDatabase.DATABASE_NAME)
+        dbFile.parentFile?.mkdirs()
+        if (dbFile.exists()) dbFile.delete()
+
+        RoomTestSupport.writeLegacyV1Database(dbFile)
+
+        // Opening with the full migration chain runs MIGRATION_1_2 .. MIGRATION_14_15 in order.
+        val opened = RoomTestSupport.onDisk(context).also { db = it }
+        val repo = RoomTestSupport.repositoryFor(opened)
+
+        val users = repo.getAllUsers().first()
+        assertThat(users).hasSize(1)
+        val user = users.single()
+        assertThat(user.name).isEqualTo("legacy-user")
+        assertThat(user.gender).isEqualTo(GenderType.FEMALE) // legacy gender=1 -> FEMALE
+        assertThat(user.heightCm).isWithin(0.1f).of(170f)
+
+        val measurements = repo.getMeasurementsWithValuesForUser(user.id).first()
+        assertThat(measurements).hasSize(1)
+        val weight = measurements.single().values
+            .mapNotNull { it.value.floatValue }
+            .firstOrNull { abs(it - 80.5f) < 0.1f }
+        assertThat(weight).isNotNull()
+
+        assertThat(repo.getAllMeasurementTypes().first()).isNotEmpty()
+    }
+
+    /**
+     * MIGRATION_16_17 adds the start date. Verifies that existing goals survive the rebuild and
+     * that the backfill uses the user's earliest measurement — the same reading the progress
+     * calculation would have snapped to — rather than a sentinel date that is untrue for anything
+     * reading the column directly.
+     */
+    @Test
+    fun migration16To17_keepsExistingGoals_andBackfillsTheStartFromTheFirstMeasurement() = runBlocking {
+        val dbFile = context.getDatabasePath(AppDatabase.DATABASE_NAME)
+        dbFile.parentFile?.mkdirs()
+        if (dbFile.exists()) dbFile.delete()
+
+        RoomTestSupport.writeV16Database(dbFile)
+
+        val opened = RoomTestSupport.onDisk(context).also { db = it }
+        val repo = RoomTestSupport.repositoryFor(opened)
+
+        val migrated = repo.getAllGoalsForUser(1).first().single()
+        assertThat(migrated.goalValue).isWithin(0.01f).of(78f)
+        assertThat(migrated.goalTargetDate).isEqualTo(1751328000000L)
+        assertThat(migrated.startDate).isEqualTo(RoomTestSupport.V16_MEASUREMENT_TIMESTAMP)
+    }
+
+    /** MIGRATION_17_18 adds the photo type behind the existing rows, enabled and unpinned. */
+    @Test
+    fun migration17To18_addsThePhotoTypeBehindTheExistingOnes() = runBlocking {
+        val dbFile = context.getDatabasePath(AppDatabase.DATABASE_NAME)
+        dbFile.parentFile?.mkdirs()
+        if (dbFile.exists()) dbFile.delete()
+
+        RoomTestSupport.writeV16Database(dbFile)
+
+        val opened = RoomTestSupport.onDisk(context).also { db = it }
+        val types = RoomTestSupport.repositoryFor(opened).getAllMeasurementTypes().first()
+
+        val photo = types.single { it.identity == MeasurementType.PHOTO.identity }
+        assertThat(photo.inputType).isEqualTo(InputFieldType.IMAGE)
+        assertThat(photo.isEnabled).isTrue()
+        assertThat(photo.isPinned).isFalse()
+        assertThat(photo.displayOrder).isGreaterThan(types.single { it.key == MeasurementType.WEIGHT }.displayOrder)
+    }
+}

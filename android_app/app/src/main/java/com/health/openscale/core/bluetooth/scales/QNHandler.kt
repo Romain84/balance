@@ -1,0 +1,703 @@
+/*
+ * openScale
+ * Copyright (C) 2025 olie.xdev <olie.xdeveloper@googlemail.com>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+package com.health.openscale.core.bluetooth.scales
+
+import android.os.Handler
+import android.os.Looper
+import com.health.openscale.R
+import com.health.openscale.core.data.MeasurementType
+import com.health.openscale.core.bluetooth.data.ScaleMeasurement
+import com.health.openscale.core.bluetooth.data.ScaleUser
+import com.health.openscale.core.bluetooth.libs.TrisaBodyAnalyzeLib
+import com.health.openscale.core.bluetooth.libs.RenphoBodyComposition
+import com.health.openscale.core.data.ActivityLevel
+import com.health.openscale.core.data.MeasurementTypeIcon
+import com.health.openscale.core.data.WeightUnit
+import com.health.openscale.core.service.ScannedDeviceInfo
+import java.util.UUID
+import kotlin.experimental.and
+import com.health.openscale.core.data.Kcal
+import com.health.openscale.core.data.Kg
+import com.health.openscale.core.data.Ohm
+import com.health.openscale.core.data.Percent
+
+/**
+ * QN / FITINDEX ES-26M style scales (vendor protocol on 0xFFE0/0xFFF0).
+ *
+ * Notes:
+ * - There are two very similar layouts (“type 1” using FFE0..FFE5, and an alternative using FFF0..FFF2).
+ * - We subscribe to both layouts. Writes to a missing characteristic are harmless (adapter logs a warning).
+ * - Weight and two resistance values are broadcast in notifications of 0xFFE1/0xFFF1 (opcode 0x10).
+ * - We derive body composition with [TrisaBodyAnalyzeLib] from weight + impedance.
+ *
+ * FIXED: Protocol type race condition - now waits for 0x12 frame before sending configuration.
+ */
+class QNHandler : ScaleDeviceHandler() {
+
+    companion object {
+        val TOTAL_MUSCLE = MeasurementType.devicePercent(
+            "total_muscle", R.string.measurement_type_total_muscle,
+            icon = MeasurementTypeIcon.IC_M_WORKOUT, color = 0xFF2E7D32.toInt()
+        )
+        // Vendor “epoch”: seconds since 2000-01-01 00:00:00 UTC
+        private const val SCALE_UNIX_TIMESTAMP_OFFSET = 946_702_800L
+        private const val MAX_STORED_DATA_QUERY_ATTEMPTS = 10
+        private const val STORED_DATA_RETRY_DELAY_MS = 5_000L
+        private const val MAX_STORED_RECORD_AGE_BEFORE_SESSION_SECONDS = 90L
+    }
+
+    // ---- Services / Characteristics (16-bit UUIDs) ---------------------------
+
+    // Type 1 (FFE0..FFE5)
+    private val SVC_T1                     = uuid16(0xFFE0)
+    private val CHR_T1_NOTIFY_WEIGHT_TIME  = uuid16(0xFFE1) // notify (weight/time/resistances)
+    private val CHR_T1_INDICATE_MISC       = uuid16(0xFFE2) // indicate (misc ack)
+    private val CHR_T1_WRITE_CONFIG        = uuid16(0xFFE3) // write (unit config)
+    private val CHR_T1_WRITE_TIME          = uuid16(0xFFE4) // write (time sync)
+
+    // Type 2 (FFF0..FFF2)
+    private val SVC_T2                     = uuid16(0xFFF0)
+    private val CHR_T2_NOTIFY_WEIGHT_TIME  = uuid16(0xFFF1) // notify (weight/time/resistances)
+    private val CHR_T2_WRITE_SHARED        = uuid16(0xFFF2) // write (used for unit+time on T2)
+
+    // ---- State ----------------------------------------------------------------
+
+    /** Heuristic: prefer Type 2 if we saw 0xFFF0 in advertisements; else fall back to Type 1. */
+    private var likelyUseType1: Boolean = true
+
+    /** Prevents double-publish for the same stable frame. */
+    private var hasPublishedForThisSession = false
+
+    /** Scale’s internal “weight scale factor” (100 = /100, 10 = /10). Defaults to type-1 behavior. */
+    private var weightScaleFactor: Float = 100.0f
+
+    /** Last seen protocol type from a vendor packet (byte[2]), echoed back in our replies. */
+    private var seenProtocolType: Byte = 0x00.toByte()
+
+    /**
+     * VA devices captured as protocolType 0xFF include both GE "Fit Plus" and RENPHO ES-CS20M.
+     * They share the completion state/acknowledgment but can advertise different resistance
+     * encodings; protocolType alone does not determine that encoding.
+     */
+    private val isCapturedUniversalVariant: Boolean
+        get() = seenProtocolType == 0xFF.toByte()
+
+    private var usesEncryptedResistance = false
+    private var isRenphoDevice = false
+    private val isRenphoVa: Boolean
+        get() = isRenphoDevice && isCapturedUniversalVariant
+
+    /** Flag to track if we've received the protocol type from 0x12 frame. */
+    private var hasReceivedProtocolType = false
+
+    /** Store the current user to access later when sending configuration. */
+    private var currentUser: ScaleUser? = null
+
+    /** Retries the history query if the scale initially reports an empty stored slot. */
+    private val historyRetryHandler = Handler(Looper.getMainLooper())
+    private var historyQueryAttempts = 0
+    private var isConnected = false
+    private var sessionStartedScaleSeconds = 0L
+
+    // ---- Capability discovery --------------------------------------------------
+
+    override fun supportFor(device: ScannedDeviceInfo): DeviceSupport? {
+        val nameLc = device.name.lowercase()
+        val uuids = device.serviceUuids.toSet()
+
+        val hasQN = uuids.contains(uuid16(0xFFE0)) || uuids.contains(uuid16(0xFFF0))
+        val nameIsQnFamily =
+            nameLc.contains("qn-scale") ||
+            nameLc.contains("renpho-scale") ||
+            // SEB/Tefal Goodvibes variants advertise under SEB branding
+            // while keeping the QN/Yolanda service layout.
+            nameLc.contains("seb-scale") ||
+            // GE CS 10 G "Fit Plus": confirmed via BTSnoop capture to advertise
+            // FFE0 pre-connect with name "Fit Plus" (not AE00 — that's only visible
+            // after GATT connect), so the AE00 relaxation below never fires for it.
+            nameLc == "fit plus"
+
+        // AE00 is a QN-only vendor service (newer QN firmware) that is never shared with the
+        // fff0 Inlife/1byone/Eufy cluster, so it positively identifies a QN scale even when the
+        // device uses a non-QN name (e.g. GE CS 10 G "Fit Plus", which advertises ae00 + fff0).
+        // No other openScale handler claims ae00 (ESCS20MHandler uses 0x1A10). Ported from
+        // ble-scale-sync 6a12687 (#235).
+        val hasAe00 = uuids.contains(uuid16(0xAE00))
+
+        // Require the QN GATT service (ffe0/fff0 — the channel this handler actually drives)
+        // AND either a QN-family name or the AE00 vendor service. AE00 only relaxes the name
+        // gate; it does not let us claim a device we cannot talk to.
+        if (!(hasQN && (nameIsQnFamily || hasAe00))) return null
+
+        isRenphoDevice = nameLc == "renpho-scale"
+        // Saved scan metadata retains this static per-device resistance encoding flag.
+        val manufacturer = device.manufacturerData
+        val payload = if (manufacturer != null && manufacturer.size() > 0) manufacturer.valueAt(0) else null
+        usesEncryptedResistance = payload != null && payload.size > 15 &&
+            (payload[15].toInt() and 0x04) != 0
+        likelyUseType1 = uuids.contains(uuid16(0xFFE0)) && !uuids.contains(uuid16(0xFFF0))
+
+        val caps = setOf(
+            DeviceCapability.TIME_SYNC,
+            DeviceCapability.LIVE_WEIGHT_STREAM,
+            DeviceCapability.BODY_COMPOSITION
+        )
+        return DeviceSupport(
+            displayName = "QN Scale",
+            capabilities = caps,
+            implemented = caps,
+            linkMode = LinkMode.CONNECT_GATT
+        )
+    }
+
+    // ---- Connection sequencing -------------------------------------------------
+
+    override fun onConnected(user: ScaleUser) {
+        hasPublishedForThisSession = false
+        weightScaleFactor = 100.0f
+        seenProtocolType = 0x00.toByte()
+        hasReceivedProtocolType = false
+        historyQueryAttempts = 0
+        isConnected = true
+        sessionStartedScaleSeconds = (System.currentTimeMillis() / 1000L) - SCALE_UNIX_TIMESTAMP_OFFSET
+        historyRetryHandler.removeCallbacksAndMessages(null)
+        currentUser = user
+        logD("QN: VA advertisement resistance encryption=$usesEncryptedResistance")
+
+        // Generic Access: Device Name
+        readFrom(uuid16(0x1800), uuid16(0x2A00))
+        // Device Information: Manufacturer / Model / FW / SW
+        readFrom(uuid16(0x180A), uuid16(0x2A29))
+        readFrom(uuid16(0x180A), uuid16(0x2A24))
+        readFrom(uuid16(0x180A), uuid16(0x2A26))
+        readFrom(uuid16(0x180A), uuid16(0x2A28))
+
+        // Subscribe to both flavors; the adapter will ignore missing ones gracefully.
+        if (hasCharacteristic(SVC_T1, CHR_T1_NOTIFY_WEIGHT_TIME)) {
+            setNotifyOn(SVC_T1, CHR_T1_NOTIFY_WEIGHT_TIME)
+        }
+        if (hasCharacteristic(SVC_T1, CHR_T1_INDICATE_MISC)) {
+            setNotifyOn(SVC_T1, CHR_T1_INDICATE_MISC)
+        }
+        if (hasCharacteristic(SVC_T2, CHR_T2_NOTIFY_WEIGHT_TIME)) {
+            setNotifyOn(SVC_T2, CHR_T2_NOTIFY_WEIGHT_TIME)
+        }
+
+        // IMPORTANT: Do NOT send configuration yet!
+        // Wait for 0x12 frame to arrive with protocol type first.
+        
+        // Tell the user to step on
+        userInfo(R.string.bt_info_step_on_scale)
+    }
+
+    // ---- Notifications ---------------------------------------------------------
+
+    override fun onNotification(characteristic: UUID, data: ByteArray, user: ScaleUser) {
+        when (characteristic) {
+            CHR_T1_NOTIFY_WEIGHT_TIME, CHR_T2_NOTIFY_WEIGHT_TIME -> handleVendorPacket(data, user)
+            CHR_T1_INDICATE_MISC -> {
+                // Not used currently, keep for completeness.
+                logD( "QN: indicate misc: ${data.toHexPreview(24)}")
+            }
+            else -> {
+                val hex = data.toHexPreview(64)
+                val ascii = data.toAsciiPreview(64)
+                logD("QN: notify chr=${(characteristic.toString())} $hex ascii=$ascii")
+            }
+        }
+    }
+
+    // ---- Vendor protocol parsing ----------------------------------------------
+
+    private fun handleVendorPacket(data: ByteArray, user: ScaleUser) {
+        if (data.size < 3) return
+
+        // Capture the protocol type from the scale's message to echo it back in our replies.
+        if (seenProtocolType == 0x00.toByte() && data.size > 2) {
+            seenProtocolType = (data[2].toInt() and 0xFF).toByte()
+            logD("QN: captured seenProtocolType=$seenProtocolType (raw: 0x${(seenProtocolType.toInt() and 0xFF).toString(16).uppercase()})")
+        }
+
+        when (data[0].toInt() and 0xFF) {
+            0x10 -> handleLiveWeightFrame(data, user)  // live / stable weight frame
+            0x14 -> {
+                // Scale acknowledgment after unit config - respond with 0x20 time sync
+                logD("QN: received 0x14 frame, sending 0x20 time sync")
+
+                // Timestamp: seconds since 2000-01-01 (QN epoch), little-endian
+                val epochSecs = (System.currentTimeMillis() / 1000L) - SCALE_UNIX_TIMESTAMP_OFFSET
+                val t = epochSecs.toInt()
+
+                val msg = byteArrayOf(
+                    0x20, // Opcode
+                    0x08, // Length
+                    seenProtocolType,
+                    (t and 0xFF).toByte(),
+                    ((t ushr 8) and 0xFF).toByte(),
+                    ((t ushr 16) and 0xFF).toByte(),
+                    ((t ushr 24) and 0xFF).toByte(),
+                    0x00  // Checksum placeholder
+                )
+                msg[msg.lastIndex] = checksum(msg, 0, msg.lastIndex - 1)
+
+                if (hasCharacteristic(SVC_T2, CHR_T2_WRITE_SHARED)) {
+                    writeTo(SVC_T2, CHR_T2_WRITE_SHARED, msg, true)
+                } else if (hasCharacteristic(SVC_T1, CHR_T1_WRITE_CONFIG)) {
+                    writeTo(SVC_T1, CHR_T1_WRITE_CONFIG, msg, true)
+                }
+            }
+            0x12 -> handleScaleInfoFrame(data)         // scale factor setup
+            0x21 -> {
+                if (isRenphoVa) {
+                    // VA guest mode avoids selecting or deleting a vendor-app user slot.
+                    val profile = renphoGuestProfile(user)
+                    if (hasCharacteristic(SVC_T2, CHR_T2_WRITE_SHARED)) {
+                        writeTo(SVC_T2, CHR_T2_WRITE_SHARED, profile, true)
+                    } else if (hasCharacteristic(SVC_T1, CHR_T1_WRITE_CONFIG)) {
+                        writeTo(SVC_T1, CHR_T1_WRITE_CONFIG, profile, true)
+                    }
+                    sendStoredDataQuery("Renpho guest profile")
+                    return
+                }
+                // ES-30M requires TWO 0xA0 response frames (from BLE capture analysis)
+                logD("QN: received 0x21 frame, sending TWO 0xA0 responses")
+
+                // Response 1: a00d04fe0000000000000000XX
+                val msg1 = byteArrayOf(
+                    0xa0.toByte(), // Opcode
+                    0x0d,          // Length (13 bytes)
+                    0x04,          // Sub-opcode type (not protocol type!)
+                    0xfe.toByte(), // Payload
+                    0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00,
+                    0x00           // Checksum placeholder
+                )
+                msg1[msg1.lastIndex] = checksum(msg1, 0, msg1.lastIndex - 1)
+
+                // Response 2: a00d02010008002106b804029d
+                val msg2 = byteArrayOf(
+                    0xa0.toByte(), // Opcode
+                    0x0d,          // Length (13 bytes)
+                    0x02,          // Sub-opcode type (not protocol type!)
+                    0x01, 0x00, 0x08, 0x00,
+                    0x21, 0x06, 0xb8.toByte(), 0x04, 0x02,
+                    0x00           // Checksum placeholder
+                )
+                msg2[msg2.lastIndex] = checksum(msg2, 0, msg2.lastIndex - 1)
+
+                // Write both responses
+                if (hasCharacteristic(SVC_T2, CHR_T2_WRITE_SHARED)) {
+                    writeTo(SVC_T2, CHR_T2_WRITE_SHARED, msg1, true)
+                    writeTo(SVC_T2, CHR_T2_WRITE_SHARED, msg2, true)
+                } else if (hasCharacteristic(SVC_T1, CHR_T1_WRITE_CONFIG)) {
+                    writeTo(SVC_T1, CHR_T1_WRITE_CONFIG, msg1, true)
+                    writeTo(SVC_T1, CHR_T1_WRITE_CONFIG, msg2, true)
+                }
+
+                sendStoredDataQuery("initial 0x21 handshake")
+            }
+            0x23 -> {
+                handleStoredMeasurementFrame(data, user)
+            }
+            0xA1 -> {
+                // Acknowledgment from scale
+                logD("QN: received 0xA1 acknowledgment")
+            }
+            0xA3 -> {
+                // Acknowledgment from scale
+                logD("QN: received 0xA3 acknowledgment")
+            }
+            else -> logD("QN: unhandled opcode=0x${(data[0].toInt() and 0xFF).toString(16)} ${data.toHexPreview(24)}")
+        }
+    }
+
+    /**
+     * 0x10 frame: live weight updates.
+     * Two formats exist:
+     * - Original: byte[3,4]=weight, byte[5]=stable, bytes[6-9]=resistances
+     * - ES-30M: byte[3]=unit, byte[4]=stable, bytes[5,6]=weight, bytes[7-10]=resistances
+     */
+    private fun handleLiveWeightFrame(data: ByteArray, user: ScaleUser) {
+        logD( "QN: raw notify: ${data.toHexPreview(24)}")
+
+        // Detect format by checking if byte[4] looks like a stable flag (0x00, 0x01, 0x02)
+        // vs weight data (typically > 0x10).
+        val byte4Value = data[4].toInt() and 0xFF
+        val isES30MFormat = byte4Value <= 0x02 && weightScaleFactor == 10.0f
+
+        val stable: Boolean
+        val raw: Float
+        val r1: Float
+        val r2: Float
+
+        if (isES30MFormat) {
+            // ES-30M format: byte[4]=stable, bytes[5,6]=weight
+            if (data.size < 11) return
+            val stableFlag = byte4Value
+            // Only state 2 carries real impedance on the captured Fit Plus family — state 1
+            // ("stabilizing") always reports R1=R2=0 there, so treating it as stable would
+            // publish a measurement with fabricated impedance and then never see the real one
+            // (guarded by hasPublishedForThisSession). Not verified for other protocolTypes,
+            // so they keep the original (state 1 or 2) behavior.
+            stable = if (isCapturedUniversalVariant) stableFlag == 0x02 else (stableFlag == 0x02 || stableFlag == 0x01)
+            raw = u16be(data[5], data[6])
+            r1 = resistance(data[7], data[8])
+            r2 = resistance(data[9], data[10])
+            logD("QN: using ES-30M format (byte[4]=$stableFlag)")
+        } else {
+            // Original format: byte[5]=stable, bytes[3,4]=weight
+            if (data.size < 10) return
+            stable = data[5].toInt() == 1
+            raw = u16be(data[3], data[4])
+            r1 = u16be(data[6], data[7])
+            r2 = u16be(data[8], data[9])
+            logD("QN: using original format")
+        }
+
+        if (!stable) return
+
+        // Acknowledge the stable reading with 0x1F, per the vendor SDK
+        // (CmdBuilder.buildOverCmd -> QNDecoderImpl opcode 0x10/state 0x02 handler), which
+        // always answers a stable frame with [0x1F, 0x05, protocolType, 0x10, checksum]
+        // regardless of anything else. Verified against a real capture of the protocolType
+        // 0xFF ("Fit Plus") family only; scoped there until we have evidence other QN devices
+        // also expect it.
+        if (isCapturedUniversalVariant) {
+            val ack = byteArrayOf(0x1F, 0x05, seenProtocolType, 0x10, 0x00)
+            ack[ack.lastIndex] = checksum(ack, 0, ack.lastIndex - 1)
+            if (hasCharacteristic(SVC_T2, CHR_T2_WRITE_SHARED)) {
+                writeTo(SVC_T2, CHR_T2_WRITE_SHARED, ack, true)
+            } else if (hasCharacteristic(SVC_T1, CHR_T1_WRITE_CONFIG)) {
+                writeTo(SVC_T1, CHR_T1_WRITE_CONFIG, ack, true)
+            }
+        }
+
+        if (hasPublishedForThisSession) return
+
+        var weightKg = raw / weightScaleFactor
+
+        // Heuristic fallback: some "type 2" devices report with /10 even before 0x12 arrives.
+        // If weight looks unreasonably small or large, try the /10 fallback once.
+        if (weightKg <= 5f || weightKg >= 250f) {
+            weightKg = weightKg / 10.0f
+        }
+
+        logD( "QN: weight=$weightKg kg, r1=$r1, r2=$r2 (weight scale factor is = $weightScaleFactor)")
+
+        if (weightKg > 0f) {
+            // VA final packets carry the scale's own body-fat result at bytes 11..12.
+            // The checksum is not part of this field, so a full packet needs >= 14 bytes.
+            val deviceFat = if (isRenphoVa && isES30MFormat && data.size >= 14)
+                (u16be(data[11], data[12]) / 10f).takeIf { it > 0f && it < 100f } else null
+            publishQnMeasurement(user, weightKg, r1, "live", deviceFat)
+            hasPublishedForThisSession = true
+        }
+    }
+
+    /**
+     * 0x23 frame: stored measurement record returned after the 0x22 history query.
+     *
+     * ESCS20MA2 / Renpho-Scale captures show this layout:
+     * - bytes[10,11] = weight, big-endian, /100 kg
+     * - bytes[13,14] = primary resistance, little-endian
+     * - bytes[15,16] = secondary resistance, little-endian
+     *
+     * Bytes[6..9] contain the device timestamp in QN epoch seconds and are used
+     * to avoid importing stale measurements saved before this session.
+     */
+    private fun handleStoredMeasurementFrame(data: ByteArray, user: ScaleUser) {
+        logD("QN: received stored measurement frame (0x23): ${data.toHexPreview(24)}")
+
+        if (hasPublishedForThisSession) {
+            logD("QN: stored frame ignored because a measurement was already published this session")
+            return
+        }
+        if (data.size < 17) {
+            logD("QN: stored frame too short (${data.size}); ignored")
+            scheduleStoredDataRetry("stored frame too short")
+            return
+        }
+
+        val rawWeight = u16be(data[10], data[11])
+        val weightKg = rawWeight / 100.0f
+        val recordScaleSeconds = u32le(data[6], data[7], data[8], data[9])
+        if (isRenphoVa && (data.size < 19 || data[3] == 0.toByte())) {
+            scheduleStoredDataRetry("empty or incomplete Renpho stored record")
+            return
+        }
+        val r1 = if (isRenphoVa) resistance(data[12], data[13]) else u16le(data[13], data[14])
+        val r2 = if (isRenphoVa) resistance(data[14], data[15]) else u16le(data[15], data[16])
+        val deviceFat = if (isRenphoVa)
+            (u16be(data[16], data[17]) / 10f).takeIf { it > 0f && it < 100f } else null
+
+        logD("QN: stored candidate weight=$weightKg kg raw=$rawWeight r1=$r1 r2=$r2 recordScaleSeconds=$recordScaleSeconds sessionStartedScaleSeconds=$sessionStartedScaleSeconds")
+
+        if (weightKg <= 5f || weightKg >= 300f) {
+            logD("QN: stored frame rejected: weight out of range")
+            scheduleStoredDataRetry("weight out of range")
+            return
+        }
+        if (recordScaleSeconds + MAX_STORED_RECORD_AGE_BEFORE_SESSION_SECONDS < sessionStartedScaleSeconds) {
+            logD("QN: stored frame rejected: stale record")
+            scheduleStoredDataRetry("stale stored record")
+            return
+        }
+
+        publishQnMeasurement(user, weightKg, r1, "stored", deviceFat)
+        hasPublishedForThisSession = true
+    }
+
+    private fun sendStoredDataQuery(reason: String) {
+        if (!isConnected || hasPublishedForThisSession) {
+            logD("QN: stored data query skipped after $reason; connected=$isConnected published=$hasPublishedForThisSession")
+            return
+        }
+        if (historyQueryAttempts >= MAX_STORED_DATA_QUERY_ATTEMPTS) {
+            logD("QN: stored data query limit reached after $reason")
+            return
+        }
+
+        historyQueryAttempts += 1
+
+        val queryMsg = byteArrayOf(
+            0x22, // Opcode
+            0x06, // Length
+            seenProtocolType,
+            0x00, 0x03,
+            0x00  // Checksum placeholder
+        )
+        queryMsg[queryMsg.lastIndex] = checksum(queryMsg, 0, queryMsg.lastIndex - 1)
+
+        logD("QN: sending stored data query attempt $historyQueryAttempts/$MAX_STORED_DATA_QUERY_ATTEMPTS after $reason: ${queryMsg.toHexPreview(24)}")
+        if (hasCharacteristic(SVC_T2, CHR_T2_WRITE_SHARED)) {
+            writeTo(SVC_T2, CHR_T2_WRITE_SHARED, queryMsg, true)
+        } else if (hasCharacteristic(SVC_T1, CHR_T1_WRITE_CONFIG)) {
+            writeTo(SVC_T1, CHR_T1_WRITE_CONFIG, queryMsg, true)
+        } else {
+            logD("QN: stored data query not sent; no known write characteristic is available")
+        }
+    }
+
+    private fun scheduleStoredDataRetry(reason: String) {
+        if (!isConnected || hasPublishedForThisSession) return
+        if (historyQueryAttempts >= MAX_STORED_DATA_QUERY_ATTEMPTS) {
+            logD("QN: not retrying stored data query after $reason; attempt limit reached")
+            return
+        }
+
+        logD("QN: scheduling stored data retry after $reason in ${STORED_DATA_RETRY_DELAY_MS}ms")
+        historyRetryHandler.removeCallbacksAndMessages(null)
+        historyRetryHandler.postDelayed({
+            sendStoredDataQuery("retry after $reason")
+        }, STORED_DATA_RETRY_DELAY_MS)
+    }
+
+    override fun onDisconnected() {
+        isConnected = false
+        currentUser = null
+        usesEncryptedResistance = false
+        historyRetryHandler.removeCallbacksAndMessages(null)
+    }
+
+    /**
+     * 0x12 frame: contains a flag describing the native weight scaling.
+     * If byte[10] == 1 → /100 else → /10.
+     * 
+     * CRITICAL FIX: Now sends configuration commands AFTER receiving this frame.
+     */
+    private fun handleScaleInfoFrame(data: ByteArray) {
+        if (data.size <= 10) return
+
+        weightScaleFactor = if (data[10].toInt() == 1) 100.0f else 10.0f
+        logD("QN: set weightScaleFactor=$weightScaleFactor from opcode 0x12")
+        
+        // NOW send the configuration after we have the protocol type
+        if (!hasReceivedProtocolType) {
+            hasReceivedProtocolType = true
+            logD("QN: protocol type received, now sending configuration commands")
+            sendConfigurationCommands()
+        }
+    }
+
+    /**
+     * Send configuration commands to the scale.
+     * MUST be called AFTER receiving the 0x12 frame with protocol type.
+     */
+    private fun sendConfigurationCommands() {
+        val user = currentUser ?: run {
+            logD("QN: ERROR - currentUser is null, cannot send configuration")
+            return
+        }
+        
+        val unitByte = when (user.scaleUnit) {
+            WeightUnit.LB, WeightUnit.ST -> 0x02.toByte() // LB (vendor uses LB also for ST in their apps)
+            else -> 0x01.toByte() // KG
+        }
+
+        // VA/0xFF scales use [unit, lightInterval, measurementFlags, babyFlags, reserved],
+        // NOT the height/age/gender layout of the classic QN decoder. In measurementFlags,
+        // bit 0 disables BIA and bit 1 persists the setting. An odd height sent here silently
+        // switches an ES-CS20M to weight-only mode; an odd age also enables baby weighing.
+        // Keep these switches clear. The user profile belongs in the VA 0xA0 exchange.
+        // Zeroes also preserve the pre-existing configuration for classic QN devices.
+        logD("QN: sending config with seenProtocolType=$seenProtocolType unitByte=$unitByte")
+
+        // Configure unit on both flavors (the non-matching write will be ignored by the stack).
+        val cfg = byteArrayOf(
+            0x13, 0x09, seenProtocolType, unitByte, 0x10, 0x00, 0x00, 0x00, 0x00
+        )
+        cfg[cfg.lastIndex] = checksum(cfg, 0, cfg.lastIndex) // last byte = checksum
+
+        if (hasCharacteristic(SVC_T1, CHR_T1_WRITE_CONFIG)) {
+            writeTo(SVC_T1, CHR_T1_WRITE_CONFIG, cfg, true)
+        }
+        if (hasCharacteristic(SVC_T2, CHR_T2_WRITE_SHARED)) {
+            writeTo(SVC_T2, CHR_T2_WRITE_SHARED, cfg, true)
+        }
+        
+        // Push current time (seconds since 2000-01-01).
+        val epochSecs = (System.currentTimeMillis() / 1000L) - SCALE_UNIX_TIMESTAMP_OFFSET
+        val t = epochSecs.toInt()
+        val timeMagic = byteArrayOf(
+            0x02,
+            (t and 0xFF).toByte(),
+            ((t ushr 8) and 0xFF).toByte(),
+            ((t ushr 16) and 0xFF).toByte(),
+            ((t ushr 24) and 0xFF).toByte()
+        )
+        if (hasCharacteristic(SVC_T1, CHR_T1_WRITE_TIME)) {
+            writeTo(SVC_T1, CHR_T1_WRITE_TIME, timeMagic, true)
+        }
+        if (hasCharacteristic(SVC_T2, CHR_T2_WRITE_SHARED)) {
+            writeTo(SVC_T2, CHR_T2_WRITE_SHARED, timeMagic, true)
+        }
+        
+        logD("QN: configuration commands sent successfully")
+    }
+
+    // ---- Helpers ---------------------------------------------------------------
+
+    private fun renphoGuestProfile(user: ScaleUser): ByteArray {
+        // Vendor app truncates height to whole cm, then sends big-endian millimetres.
+        val heightMm = user.bodyHeight.toInt().coerceIn(40, 240) * 10
+        val algorithm = if (user.activityLevel == ActivityLevel.EXTREME) 0x0E else 0x04
+        val profile = byteArrayOf(
+            0xA0.toByte(), 0x0D, 0x02, 0xFE.toByte(), 0xFF.toByte(), 0xEE.toByte(),
+            if (user.gender.isMale()) 0x00 else 0x01, user.age.coerceIn(0, 255).toByte(),
+            (heightMm shr 8).toByte(), heightMm.toByte(), algorithm.toByte(), 0x02, 0x00
+        )
+        profile[profile.lastIndex] = checksum(profile, 0, profile.lastIndex - 1)
+        return profile
+    }
+
+    private fun checksum(buf: ByteArray, from: Int, toInclusive: Int): Byte {
+        var s = 0
+        for (i in from..toInclusive) s = (s + (buf[i].toInt() and 0xFF)) and 0xFF
+        return s.toByte()
+    }
+
+    private fun u16be(a: Byte, b: Byte): Float =
+        (((a.toInt() and 0xFF) shl 8) or (b.toInt() and 0xFF)).toFloat()
+
+    private fun u16le(a: Byte, b: Byte): Float =
+        ((a.toInt() and 0xFF) or ((b.toInt() and 0xFF) shl 8)).toFloat()
+
+    private fun resistance(high: Byte, low: Byte): Float {
+        if (!isRenphoVa || !usesEncryptedResistance) return u16be(high, low)
+        // Swap bits 0/4 and 3/5 within EACH byte; this is not a decimal scale factor.
+        fun decode(value: Byte): Byte {
+            val v = value.toInt() and 0xFF
+            return ((v and 0xC6) or ((v and 0x01) shl 4) or ((v and 0x10) shr 4) or
+                ((v and 0x08) shl 2) or ((v and 0x20) shr 2)).toByte()
+        }
+        return u16be(decode(high), decode(low))
+    }
+
+    private fun u32le(a: Byte, b: Byte, c: Byte, d: Byte): Long =
+        (a.toLong() and 0xFFL) or
+        ((b.toLong() and 0xFFL) shl 8) or
+        ((c.toLong() and 0xFFL) shl 16) or
+        ((d.toLong() and 0xFFL) shl 24)
+
+    private fun publishQnMeasurement(user: ScaleUser, weightKg: Float, r1: Float, source: String, deviceFat: Float? = null) {
+        // Preserve the captured Fit Plus deci-ohm path. Only Renpho VA uses whole ohms
+        // after optional wire decoding; protocolType 0xFF alone does not select the units.
+        val impedanceOhm = if (isCapturedUniversalVariant && !isRenphoVa) r1 / 10f else r1
+
+        val m = ScaleMeasurement().apply {
+            userId = user.id
+            this[MeasurementType.WEIGHT] = Kg(weightKg)
+        }
+
+        // A completed weight-only reading is valid, but zero/missing resistance carries no
+        // body-composition information. Do not turn it into plausible-looking fat/muscle values.
+        if (r1 <= 0f) {
+            logD("QN: publishing $source weight-only measurement weight=$weightKg kg (no impedance)")
+            publish(m.snapshot())
+            return
+        }
+        // Store decoded resistance in ohms so composition can be recomputed later.
+        m[MeasurementType.IMPEDANCE] = Ohm(impedanceOhm)
+
+        if (isRenphoVa) {
+            // Prefer the firmware's result for the real guest profile. If it is absent,
+            // retain weight and impedance rather than silently substituting Trisa estimates.
+            if (deviceFat != null) {
+                val male = user.gender.isMale()
+                val bone = RenphoBodyComposition.boneMass(weightKg, deviceFat, male)
+                m[MeasurementType.BODY_FAT] = Percent(deviceFat)
+                m[MeasurementType.WATER] = Percent(RenphoBodyComposition.waterPercent(deviceFat, male))
+                m[MeasurementType.MUSCLE] = Percent(RenphoBodyComposition.skeletalMusclePercent(deviceFat, male))
+                m[MeasurementType.BONE] = Kg(bone)
+                m[MeasurementType.BMR] = Kcal(RenphoBodyComposition.basalMetabolicRate(bone, male).toFloat())
+                m[MeasurementType.PROTEIN] = Percent(RenphoBodyComposition.proteinPercent(deviceFat, male))
+                m[MeasurementType.LBM] = Kg(weightKg * (100f - deviceFat) / 100f)
+                m[TOTAL_MUSCLE] = Percent(100f - deviceFat - bone * 100f / weightKg)
+            }
+            logD("QN: Renpho $source weight=$weightKg kg impedance=$impedanceOhm ohm deviceFat=$deviceFat")
+            publish(m.snapshot())
+            return
+        }
+
+        // Pre-existing ad-hoc calibration for the other protocolTypes this handler already
+        // serves; left untouched since we have no capture evidence to correct it for them.
+        val impedance = if (isCapturedUniversalVariant) {
+            impedanceOhm
+        } else if (impedanceOhm < 410f) {
+            3.0f
+        } else {
+            0.3f * (impedanceOhm - 400f)
+        }
+
+        val trisa = TrisaBodyAnalyzeLib(
+            if (user.gender.isMale()) 1 else 0,
+            user.age,
+            user.bodyHeight
+        )
+
+        m[MeasurementType.BODY_FAT] = Percent(trisa.getFat(weightKg, impedance))
+        m[MeasurementType.WATER] = Percent(trisa.getWater(weightKg, impedance))
+        m[MeasurementType.MUSCLE] = Percent(trisa.getMuscle(weightKg, impedance))
+        m[MeasurementType.BONE] = Kg(trisa.getBone(weightKg, impedance))
+
+        logD("QN: publishing $source measurement weight=$weightKg kg r1=$r1 impedanceOhm=$impedanceOhm impedance=$impedance")
+        // Snapshot: the accumulator keeps being mutated after this publish.
+        publish(m.snapshot())
+    }
+
+}

@@ -1,0 +1,108 @@
+# This is a basic workflow to help you get started with Actions
+
+name: CI
+
+# Controls when the workflow will run
+on:
+  # Every push to master: test, build, publish the dev-build and the wiki page.
+  push:
+    branches:
+      'master'
+
+  # Every pull request: test and build only. The release upload and the wiki publish are
+  # guarded below, so a contributor's PR can never overwrite the dev-build or the wiki.
+  pull_request:
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  build:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: android_app
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Setup JDK
+        uses: actions/setup-java@v3
+        with:
+          distribution: "zulu" # See 'Supported distributions' for available options
+          java-version: "21"
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest
+      - name: Compile instrumented tests
+        run: ./gradlew compileDebugAndroidTestKotlin
+      - name: Build APK
+        run: ./gradlew assembleDebug
+      - uses: "marvinpinto/action-automatic-releases@latest"
+        if: github.event_name == 'push'
+        with:
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          automatic_release_tag: "dev-build"
+          prerelease: true
+          title: "openScale development build"
+          files: |
+            android_app/app/build/outputs/apk/debug/openScale-debug.apk
+
+  # Publish the "Supported scales in openScale" wiki page, generated from the handler registry by
+  # ScaleCatalogTest. The page is a build artifact: hand edits in the wiki are overwritten, while
+  # the remarks column and the photo gallery are edited in
+  # android_app/app/src/test/resources/scale_catalog_{remarks.txt,gallery.md}.
+  publish-scale-catalog:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Setup JDK
+        uses: actions/setup-java@v3
+        with:
+          distribution: "zulu"
+          java-version: "21"
+      - name: Checkout wiki
+        run: git clone "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.wiki.git" wiki
+      - name: Generate the supported scales page
+        working-directory: android_app
+        env:
+          SCALE_CATALOG_OUT: ${{ github.workspace }}/wiki/Supported-scales-in-openScale.md
+        run: |
+          ./gradlew testDebugUnitTest --tests '*ScaleCatalogTest'
+          # A skipped (up-to-date) test task would leave the page untouched and the job green.
+          test -s "$SCALE_CATALOG_OUT"
+      - name: Push the page if it changed
+        working-directory: wiki
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "Wiki already up to date."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Supported-scales-in-openScale.md
+          git commit -m "Update supported scales from the handler registry (${GITHUB_SHA::7})"
+          git push
+
+  # Keep the `weblate` branch (Weblate's push target) in sync with master so
+  # Weblate's rebased translation pushes stay fast-forward and don't fail.
+  sync-weblate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v3
+      - name: Force-update weblate branch to master
+        run: git push --force origin HEAD:weblate
+
