@@ -26,6 +26,7 @@ import com.health.openscale.core.data.Measurement
 import com.health.openscale.core.data.MeasurementType
 import com.health.openscale.core.data.MeasurementValue
 import com.health.openscale.core.data.UnitType
+import com.health.openscale.core.healthconnect.HealthConnectSyncScheduler
 import com.health.openscale.core.utils.ConverterUtils
 import com.health.openscale.core.utils.LogManager
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -168,6 +169,9 @@ class SyncUseCases @Inject constructor(
     /** Convenience: fire a coalesced "changed" wake to all known sync app variants. */
     fun triggerSyncChangedAll() {
         SYNC_PACKAGES.forEach { triggerSyncChanged(it) }
+        // Bulk changes (CSV import, backup restore) also reach Health Connect right away instead
+        // of waiting for the periodic recovery job. The worker is a no-op while sync is disabled.
+        runCatching { HealthConnectSyncScheduler(application).enqueue(fullHistory = false) }
     }
 
     /**

@@ -9,7 +9,7 @@ openScale writes supported measurements directly to Android Health Connect. It d
 3. Grant the Health Connect write permissions you want openScale to use. Partial grants are supported; measurements requiring other permissions remain pending.
 4. Use **Synchronize now** to retry work, or **Manage access in Health Connect** to review permissions.
 
-New and edited measurements are queued as expedited WorkManager jobs. WorkManager retries temporary failures, and a periodic recovery job checks for outstanding changes. Stable Health Connect `clientRecordId` values and increasing `clientRecordVersion` values make retries idempotent.
+New and edited measurements are queued as expedited WorkManager jobs. WorkManager retries temporary failures, and a periodic recovery job checks for outstanding changes. Stable Health Connect `clientRecordId` values and increasing `clientRecordVersion` values make retries idempotent. Deleting a measurement or user in openScale propagates deletions to Health Connect, and editing a measurement removes any metrics no longer present.
 
 Disabling synchronization cancels openScale's queued jobs. It does not delete data already written to Health Connect.
 
@@ -26,7 +26,7 @@ Disabling synchronization cancels openScale's queued jobs. It does not delete da
 | Basal metabolic rate | `BasalMetabolicRateRecord` | openScale kcal/day is converted to Health Connect power in watts. |
 | BMI and other values without a matching record | — | Kept in openScale; no substitute record is invented. |
 
-The per-measurement status shown in the overview and settings distinguishes synchronized, pending, failed, invalid, and unsupported measurements.
+The per-measurement status shown in the overview and settings distinguishes synchronized, pending, failed, invalid, excluded, and unsupported measurements.
 
 ## Build and tests
 

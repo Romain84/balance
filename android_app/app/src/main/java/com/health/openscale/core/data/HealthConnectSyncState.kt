@@ -43,5 +43,7 @@ data class HealthConnectSyncState(
         const val STATUS_ERROR = "ERROR"
         const val STATUS_UNSUPPORTED = "UNSUPPORTED"
         const val STATUS_INVALID = "INVALID"
+        /** Existed before synchronization was enabled without the full history option. */
+        const val STATUS_SKIPPED = "SKIPPED"
     }
 }

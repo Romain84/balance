@@ -31,6 +31,7 @@ import com.health.openscale.core.data.MeasurementType
 import com.health.openscale.core.data.MeasurementValue
 import com.health.openscale.core.data.UnitType
 import com.health.openscale.core.facade.SettingsFacade
+import com.health.openscale.core.healthconnect.HealthConnectSyncScheduler
 import com.health.openscale.core.usecase.GenericValueJson
 import com.health.openscale.core.usecase.MeasurementCrudUseCases
 import com.health.openscale.core.utils.ConverterUtils
@@ -315,6 +316,7 @@ class DatabaseProvider : ContentProvider() {
                     }
 
                     if (insertedMeasurementId != null && insertedMeasurementId > 0) {
+                        runCatching { HealthConnectSyncScheduler(context!!).enqueueMeasurement(insertedMeasurementId.toInt()) }
                         // Notify change on the general list URI for this user
                         context!!.contentResolver.notifyChange(uri, null)
                         LogManager.d(TAG, "Measurement inserted with ID: $insertedMeasurementId. Old API compatibility: returning null.")
@@ -509,6 +511,12 @@ class DatabaseProvider : ContentProvider() {
                         }
 
                         if (anyChangeMade) {
+                            // Bump the revision so the edit is visible as pending and gets a new
+                            // Health Connect clientRecordVersion, as edits made in the app do.
+                            databaseRepository.updateMeasurement(
+                                measurementToUpdate.copy(revision = measurementToUpdate.revision + 1L)
+                            )
+                            runCatching { HealthConnectSyncScheduler(context!!).enqueueMeasurement(measurementToUpdate.id) }
                             LogManager.d(TAG, "Measurement values changed for user ${measurementToUpdate.userId}. Derived values will be recalculated by repository calls.")
                             return@runBlocking 1 // Return 1 row affected
                         } else {
@@ -573,6 +581,10 @@ class DatabaseProvider : ContentProvider() {
                             .mapNotNull { it.value.textValue }
                         databaseRepository.deleteMeasurement(target.measurement)
                         MeasurementCrudUseCases.deleteImageFiles(context!!, images)
+                        runCatching {
+                            HealthConnectSyncScheduler(context!!)
+                                .enqueueDeletion(userId, listOf(target.measurement.id))
+                        }
                         context!!.contentResolver.notifyChange(uri, null)
                         1
                     } catch (e: Exception) {

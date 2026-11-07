@@ -22,6 +22,7 @@ import com.health.openscale.core.data.InputFieldType
 import com.health.openscale.core.data.User
 import com.health.openscale.core.database.DatabaseRepository
 import com.health.openscale.core.facade.SettingsFacade
+import com.health.openscale.core.healthconnect.HealthConnectSyncScheduler
 import com.health.openscale.core.model.UserEvaluationContext
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -135,8 +136,10 @@ class UserUseCases @Inject constructor(
         sync.triggerSyncClear(userId, "com.health.openscale.sync.oss")
         sync.triggerSyncClear(userId, "com.health.openscale.sync.debug")
         val images = imageFileNamesForUser(userId)
+        val measurementIds = measurementIdsForUser(userId)
         databaseRepository.deleteAllMeasurementsForUser(userId).also {
             MeasurementCrudUseCases.deleteImageFiles(appContext, images)
+            enqueueHealthConnectDeletion(userId, measurementIds)
         }
     }
 
@@ -154,8 +157,10 @@ class UserUseCases @Inject constructor(
     ): Result<Int?> = runCatching {
         val currentSelected = settingsFacade.currentUserId.first()
         val images = imageFileNamesForUser(user.id)
+        val measurementIds = measurementIdsForUser(user.id)
         databaseRepository.deleteUser(user)
         MeasurementCrudUseCases.deleteImageFiles(appContext, images)
+        enqueueHealthConnectDeletion(user.id, measurementIds)
 
         if (currentSelected == user.id) {
             if (reseatSelection) {
@@ -170,6 +175,14 @@ class UserUseCases @Inject constructor(
         } else {
             currentSelected
         }
+    }
+
+    private suspend fun measurementIdsForUser(userId: Int): List<Int> =
+        databaseRepository.getMeasurementsWithValuesForUser(userId).first().map { it.measurement.id }
+
+    /** Health Connect cleanup is best effort and must never fail the local deletion. */
+    private fun enqueueHealthConnectDeletion(userId: Int, measurementIds: List<Int>) {
+        runCatching { HealthConnectSyncScheduler(appContext).enqueueDeletion(userId, measurementIds) }
     }
 
     private suspend fun imageFileNamesForUser(userId: Int): List<String> =

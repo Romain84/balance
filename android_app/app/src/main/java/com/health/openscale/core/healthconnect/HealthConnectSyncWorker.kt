@@ -26,6 +26,12 @@ class HealthConnectSyncWorker @AssistedInject constructor(
 
     override suspend fun doWork(): Result {
         return try {
+            val deletedIds = inputData.getIntArray(KEY_DELETED_MEASUREMENT_IDS)
+            if (deletedIds != null) {
+                val userId = inputData.getInt(KEY_DELETED_USER_ID, 0)
+                val retry = syncManager.deleteMeasurements(userId, deletedIds.toList())
+                return if (retry && runAttemptCount < MAX_RETRIES) Result.retry() else Result.success()
+            }
             val measurementId = inputData.getInt(KEY_MEASUREMENT_ID, 0)
             val report = if (measurementId > 0) {
                 syncManager.syncMeasurement(measurementId, attempt = runAttemptCount)
@@ -53,6 +59,8 @@ class HealthConnectSyncWorker @AssistedInject constructor(
     companion object {
         const val KEY_FULL_HISTORY = "full_history"
         const val KEY_MEASUREMENT_ID = "measurement_id"
+        const val KEY_DELETED_USER_ID = "deleted_user_id"
+        const val KEY_DELETED_MEASUREMENT_IDS = "deleted_measurement_ids"
         private const val MAX_RETRIES = 8
     }
 }

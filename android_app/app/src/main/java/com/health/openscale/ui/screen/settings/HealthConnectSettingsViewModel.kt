@@ -29,7 +29,7 @@ import kotlinx.coroutines.launch
 
 data class HealthConnectSettingsState(
     val settings: HealthConnectSettings = HealthConnectSettings(),
-    val counts: HealthConnectSyncCounts = HealthConnectSyncCounts(0, 0, 0, 0),
+    val counts: HealthConnectSyncCounts = HealthConnectSyncCounts(0, 0, 0, 0, 0),
     val sdkStatus: Int = HealthConnectClient.SDK_UNAVAILABLE,
     val hasPermissions: Boolean = false,
     val hasAnyPermission: Boolean = false
@@ -73,7 +73,9 @@ class HealthConnectSettingsViewModel @Inject constructor(
                 if (hasAny) {
                     scheduler.scheduleRecoverySync()
                     if (permissionsChanged) {
-                        scheduler.enqueue(fullHistory = settings.lastSyncAt == null)
+                        // The history scope chosen on enable decides what is sent; a permission
+                        // change must not silently turn into a forced full re-upload.
+                        scheduler.enqueue(fullHistory = false)
                     }
                 } else if (sdk == HealthConnectClient.SDK_AVAILABLE) {
                     scheduler.cancelAll()
@@ -97,6 +99,7 @@ class HealthConnectSettingsViewModel @Inject constructor(
             permissions.value = enabled
             anyPermission.value = anyGranted
             if (anyGranted) {
+                syncManager.setHistoryScope(includeHistory = fullHistoryOnEnable)
                 scheduler.scheduleRecoverySync()
                 scheduler.enqueue(fullHistory = fullHistoryOnEnable)
             } else {
@@ -113,7 +116,7 @@ class HealthConnectSettingsViewModel @Inject constructor(
                 syncManager.refreshPermissions(granted)
                 if (state.value.settings.enabled) {
                     scheduler.scheduleRecoverySync()
-                    scheduler.enqueue(fullHistory = syncManager.settings.first().lastSyncAt == null)
+                    scheduler.enqueue(fullHistory = false)
                 }
             }
         }

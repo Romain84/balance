@@ -72,6 +72,7 @@ class HealthConnectSyncManager @Inject constructor(
     private val progressKey = intPreferencesKey("progress")
     private val totalKey = intPreferencesKey("total")
     private val messageKey = stringPreferencesKey("last_message")
+    private val historyCutoffKey = intPreferencesKey("history_cutoff_id")
 
     val settings: Flow<HealthConnectSettings> = context.healthConnectDataStore.data.map { values ->
         HealthConnectSettings(
@@ -105,6 +106,21 @@ class HealthConnectSyncManager @Inject constructor(
         }
     }
 
+    /**
+     * Records which measurements form the existing history when synchronization is switched on.
+     * With [includeHistory] everything is eligible; otherwise only measurements created from now
+     * on are sent, and older ones are reported as excluded until a full synchronization is run.
+     */
+    suspend fun setHistoryScope(includeHistory: Boolean) {
+        val cutoff = if (includeHistory) null else syncDao.maxMeasurementId()
+        context.healthConnectDataStore.edit {
+            if (cutoff == null) it.remove(historyCutoffKey) else it[historyCutoffKey] = cutoff
+        }
+    }
+
+    private suspend fun historyCutoffId(): Int? =
+        context.healthConnectDataStore.data.map { it[historyCutoffKey] }.first()
+
     suspend fun isEnabled(): Boolean =
         context.healthConnectDataStore.data.map { it[enabledKey] ?: false }.first()
 
@@ -124,6 +140,66 @@ class HealthConnectSyncManager @Inject constructor(
 
     suspend fun recordUnexpectedFailure(message: String) {
         writeMessage(message.take(240))
+    }
+
+    /**
+     * Removes the Health Connect records written for measurements that were deleted in openScale.
+     * The rows are already gone locally, so the records are addressed by their stable
+     * clientRecordIds. Returns true when a retry could succeed later.
+     */
+    suspend fun deleteMeasurements(userId: Int, measurementIds: List<Int>): Boolean =
+        syncMutex.withLock {
+            if (measurementIds.isEmpty() || !isEnabled()) return@withLock false
+            if (availability() != HealthConnectClient.SDK_AVAILABLE) return@withLock true
+            val client = HealthConnectClient.getOrCreate(context)
+            val granted = try {
+                client.permissionController.getGrantedPermissions()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                return@withLock true
+            }
+            var retry = false
+            for ((suffix, type) in HealthConnectRecordMapper.RECORD_TYPES) {
+                if (HealthPermission.getWritePermission(type) !in granted) continue
+                measurementIds.chunked(DELETE_BATCH_SIZE).forEach { batch ->
+                    val ids = batch.map { HealthConnectRecordMapper.clientRecordId(userId, it, suffix) }
+                    try {
+                        client.deleteRecords(type, emptyList(), ids)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        if (error !is IllegalArgumentException && error !is SecurityException) retry = true
+                    }
+                }
+            }
+            retry
+        }
+
+    /**
+     * Deletes the records of a measurement whose value disappeared since the previous delivery
+     * (e.g. body fat removed while editing), so Health Connect never keeps a stale value.
+     */
+    private suspend fun deleteStaleRecords(
+        client: HealthConnectClient,
+        granted: Set<String>,
+        item: MeasurementWithValues,
+        written: List<androidx.health.connect.client.records.Record>
+    ) {
+        val current = written.mapNotNull { HealthConnectRecordMapper.typeSuffixOf(it) }.toSet()
+        for ((suffix, type) in HealthConnectRecordMapper.RECORD_TYPES) {
+            if (suffix in current || HealthPermission.getWritePermission(type) !in granted) continue
+            val id = HealthConnectRecordMapper.clientRecordId(
+                item.measurement.userId, item.measurement.id, suffix
+            )
+            try {
+                client.deleteRecords(type, emptyList(), listOf(id))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Best effort: a missing record or a transient error must not fail the delivery.
+            }
+        }
     }
 
     private suspend fun syncInternal(
@@ -173,9 +249,31 @@ class HealthConnectSyncManager @Inject constructor(
         var synced = 0
         var failed = 0
         var retryable = false
+        val historyCutoffId = historyCutoffId()
         for (item in measurements) {
             val measurement = item.measurement
             val previous = syncDao.get(measurement.id)
+            if (HealthConnectRecordMapper.isExcludedHistory(
+                    measurementId = measurement.id,
+                    historyCutoffId = historyCutoffId,
+                    previousStatus = previous?.status,
+                    fullHistory = fullHistory
+                )
+            ) {
+                if (previous == null) {
+                    syncDao.save(
+                        HealthConnectSyncState(
+                            measurementId = measurement.id,
+                            status = HealthConnectSyncState.STATUS_SKIPPED,
+                            lastSyncedRevision = measurement.revision,
+                            lastAttemptAt = System.currentTimeMillis()
+                        )
+                    )
+                }
+                processed++
+                updateProgress(processed, measurements.size)
+                continue
+            }
             val user = usersById[measurement.userId]
             val payloadHash = payloadHash(item, user)
             val alreadyCurrent = previous != null && previous.payloadHash == payloadHash &&
@@ -255,6 +353,7 @@ class HealthConnectSyncManager @Inject constructor(
             )
             try {
                 client.insertRecords(writableRecords)
+                deleteStaleRecords(client, granted, item, records)
                 val completedAt = System.currentTimeMillis()
                 syncDao.save(
                     HealthConnectSyncState(
@@ -432,6 +531,7 @@ class HealthConnectSyncManager @Inject constructor(
 
     companion object {
         private const val MAX_RETRIES = 8
+        private const val DELETE_BATCH_SIZE = 100
         val REQUIRED_PERMISSIONS = setOf(
             HealthPermission.getWritePermission(WeightRecord::class),
             HealthPermission.getWritePermission(HeightRecord::class),

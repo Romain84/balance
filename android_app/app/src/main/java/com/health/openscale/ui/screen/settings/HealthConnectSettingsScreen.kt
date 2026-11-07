@@ -131,6 +131,9 @@ fun HealthConnectSettingsScreen(
                 Text(stringResource(R.string.health_connect_pending_count, state.counts.pending))
                 Text(stringResource(R.string.health_connect_failed_count, state.counts.failed))
                 Text(stringResource(R.string.health_connect_unsupported_count, state.counts.unsupported))
+                if (state.counts.skipped > 0) {
+                    Text(stringResource(R.string.health_connect_skipped_count, state.counts.skipped))
+                }
                 val lastSyncText = state.settings.lastSyncAt?.let {
                     DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(it))
                 } ?: stringResource(R.string.health_connect_never_synced)

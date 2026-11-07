@@ -62,6 +62,28 @@ class HealthConnectSyncScheduler @Inject constructor(
         )
     }
 
+    /**
+     * Queues removal of the Health Connect records of deleted measurements. Ids are split into
+     * small batches so each request stays well below WorkManager's 10 KB input limit.
+     */
+    fun enqueueDeletion(userId: Int, measurementIds: Collection<Int>) {
+        if (measurementIds.isEmpty()) return
+        val workManager = WorkManager.getInstance(context)
+        measurementIds.chunked(DELETION_CHUNK_SIZE).forEach { chunk ->
+            val request = OneTimeWorkRequestBuilder<HealthConnectSyncWorker>()
+                .setInputData(
+                    Data.Builder()
+                        .putInt(HealthConnectSyncWorker.KEY_DELETED_USER_ID, userId)
+                        .putIntArray(HealthConnectSyncWorker.KEY_DELETED_MEASUREMENT_IDS, chunk.toIntArray())
+                        .build()
+                )
+                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                .build()
+            workManager.enqueueUniqueWork(UNIQUE_WORK_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+        }
+    }
+
     fun scheduleRecoverySync() {
         val request = PeriodicWorkRequestBuilder<HealthConnectSyncWorker>(12, TimeUnit.HOURS)
             .build()
@@ -85,5 +107,6 @@ class HealthConnectSyncScheduler @Inject constructor(
     companion object {
         const val UNIQUE_WORK_NAME = "health_connect_measurement_sync"
         const val UNIQUE_PERIODIC_WORK_NAME = "health_connect_recovery_sync"
+        private const val DELETION_CHUNK_SIZE = 400
     }
 }

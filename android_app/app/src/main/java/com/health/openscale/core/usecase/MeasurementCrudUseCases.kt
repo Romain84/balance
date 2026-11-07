@@ -196,6 +196,9 @@ class MeasurementCrudUseCases @Inject constructor(
         sync.triggerSyncDelete(measurement.id, measurement.userId, Date(measurement.timestamp), "com.health.openscale.sync.oss")
         sync.triggerSyncDelete(measurement.id, measurement.userId, Date(measurement.timestamp), "com.health.openscale.sync.debug")
 
+        // Remove the matching Health Connect records; never undoes the local delete on failure.
+        runCatching { healthConnectSyncScheduler.enqueueDeletion(measurement.userId, listOf(measurement.id)) }
+
         MeasurementWidget.refreshAll(appContext)
     }
 

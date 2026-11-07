@@ -54,6 +54,7 @@
     <string name="health_connect_pending_count">Waiting: %1$d</string>
     <string name="health_connect_failed_count">Errors: %1$d</string>
     <string name="health_connect_unsupported_count">Measurements without a matching Health Connect type: %1$d</string>
+    <string name="health_connect_skipped_count">Historical measurements excluded: %1$d</string>
     <string name="health_connect_last_sync">Last synchronization: %1$s</string>
     <string name="health_connect_never_synced">Never</string>
     <string name="health_connect_progress">Processed %1$d of %2$d measurements</string>
@@ -71,6 +72,7 @@
     <string name="health_connect_measurement_pending">Pending</string>
     <string name="health_connect_measurement_error">Sync error</string>
     <string name="health_connect_measurement_unsupported">Unsupported</string>
+    <string name="health_connect_measurement_skipped">Excluded</string>
     <string name="route_title_table_drilldown">Details</string>
     <string name="calendar_week_abbrev">CW</string>
     <string name="title_new_measurement">New Measurement</string>

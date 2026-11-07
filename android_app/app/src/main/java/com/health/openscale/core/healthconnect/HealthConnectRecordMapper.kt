@@ -15,12 +15,14 @@ import androidx.health.connect.client.records.BodyWaterMassRecord
 import androidx.health.connect.client.records.BoneMassRecord
 import androidx.health.connect.client.records.HeightRecord
 import androidx.health.connect.client.records.LeanBodyMassRecord
+import androidx.health.connect.client.records.Record
 import androidx.health.connect.client.records.WeightRecord
 import androidx.health.connect.client.records.metadata.Metadata
 import androidx.health.connect.client.units.Length
 import androidx.health.connect.client.units.Mass
 import androidx.health.connect.client.units.Percentage
 import androidx.health.connect.client.units.Power
+import com.health.openscale.core.data.HealthConnectSyncState
 import com.health.openscale.core.data.MeasurementType
 import com.health.openscale.core.data.UnitType
 import com.health.openscale.core.data.User
@@ -30,6 +32,7 @@ import java.security.MessageDigest
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZoneOffset
+import kotlin.reflect.KClass
 
 /** Conversion and identity logic independent from Health Connect IPC. */
 internal object HealthConnectRecordMapper {
@@ -127,7 +130,7 @@ internal object HealthConnectRecordMapper {
             return kilograms.takeIf { it.isFinite() && it > 0.0 && it <= MAX_BODY_MASS_KG }
         }
         fun metadata(type: String) = Metadata.manualEntry(
-            clientRecordId = "openscale:${measurement.userId}:${measurement.id}:$type",
+            clientRecordId = clientRecordId(measurement.userId, measurement.id, type),
             clientRecordVersion = recordVersion.coerceAtLeast(1L)
         )
 
@@ -159,6 +162,42 @@ internal object HealthConnectRecordMapper {
         }
         // BMI has no matching Health Connect record. Keep it in openScale.
         return records
+    }
+
+    /** Stable identifier shared by every write, update and delete of one openScale value. */
+    fun clientRecordId(userId: Int, measurementId: Int, type: String): String =
+        "openscale:$userId:$measurementId:$type"
+
+    /** Every record type openScale may write, with the suffix used in its clientRecordId. */
+    val RECORD_TYPES: List<Pair<String, KClass<out Record>>> = listOf(
+        "weight" to WeightRecord::class,
+        "body_fat" to BodyFatRecord::class,
+        "body_water_mass" to BodyWaterMassRecord::class,
+        "lean_body_mass" to LeanBodyMassRecord::class,
+        "bone_mass" to BoneMassRecord::class,
+        "basal_metabolic_rate" to BasalMetabolicRateRecord::class,
+        "height" to HeightRecord::class
+    )
+
+    /** The clientRecordId suffix of a record built by [recordsFor], or null for foreign records. */
+    fun typeSuffixOf(record: Record): String? =
+        RECORD_TYPES.firstOrNull { (_, type) -> type.isInstance(record) }?.first
+
+    /**
+     * Decides whether a measurement belongs to the history the user chose not to send.
+     * Only measurements that already existed when synchronization was enabled
+     * ([historyCutoffId]) and were never delivered are excluded; anything created later —
+     * including a weigh-in entered afterwards with a past date — is always synchronized.
+     */
+    fun isExcludedHistory(
+        measurementId: Int,
+        historyCutoffId: Int?,
+        previousStatus: String?,
+        fullHistory: Boolean
+    ): Boolean {
+        if (fullHistory || historyCutoffId == null) return false
+        if (measurementId > historyCutoffId) return false
+        return previousStatus == null || previousStatus == HealthConnectSyncState.STATUS_SKIPPED
     }
 
     private const val MAX_BODY_MASS_KG = 1_000.0

@@ -17,6 +17,7 @@ import androidx.health.connect.client.records.HeightRecord
 import androidx.health.connect.client.records.LeanBodyMassRecord
 import androidx.health.connect.client.records.WeightRecord
 import com.google.common.truth.Truth.assertThat
+import com.health.openscale.core.data.HealthConnectSyncState
 import com.health.openscale.core.data.Measurement
 import com.health.openscale.core.data.MeasurementType
 import com.health.openscale.core.data.MeasurementValue
@@ -186,6 +187,85 @@ class HealthConnectRecordMapperTest {
             .isNotEqualTo(originalHash)
         assertThat(HealthConnectRecordMapper.payloadHash(supportedValueChanged, user = null))
             .isNotEqualTo(originalHash)
+    }
+
+    @Test
+    fun formatsClientRecordIdCorrectly() {
+        assertThat(HealthConnectRecordMapper.clientRecordId(7, 41, "weight"))
+            .isEqualTo("openscale:7:41:weight")
+        assertThat(HealthConnectRecordMapper.clientRecordId(1, 100, "height"))
+            .isEqualTo("openscale:1:100:height")
+    }
+
+    @Test
+    fun mapsRecordSuffixAndCoversAllRecordTypes() {
+        val timestamp = Instant.parse("2025-01-02T03:04:05Z").toEpochMilli()
+        val item = measurement(
+            timestamp,
+            listOf(
+                value(MeasurementType.WEIGHT.identity, UnitType.KG, 70f),
+                value(MeasurementType.BODY_FAT.identity, UnitType.PERCENT, 20f),
+                value(MeasurementType.WATER.identity, UnitType.KG, 35f),
+                value(MeasurementType.LBM.identity, UnitType.KG, 55f),
+                value(MeasurementType.BONE.identity, UnitType.KG, 3f),
+                value(MeasurementType.BMR.identity, UnitType.KCAL, 1600f)
+            )
+        )
+        val user = User(
+            id = 7,
+            name = "User",
+            birthDate = 0L,
+            gender = GenderType.MALE,
+            heightCm = 175f,
+            activityLevel = ActivityLevel.MODERATE,
+            useAssistedWeighing = false
+        )
+        val records = HealthConnectRecordMapper.recordsFor(item, user, 1L)
+
+        val suffixes = records.map { HealthConnectRecordMapper.typeSuffixOf(it) }
+        assertThat(suffixes).containsExactly(
+            "weight",
+            "body_fat",
+            "body_water_mass",
+            "lean_body_mass",
+            "bone_mass",
+            "basal_metabolic_rate",
+            "height"
+        ).inOrder()
+
+        val registeredSuffixes = HealthConnectRecordMapper.RECORD_TYPES.map { it.first }
+        assertThat(registeredSuffixes).containsExactly(
+            "weight",
+            "body_fat",
+            "body_water_mass",
+            "lean_body_mass",
+            "bone_mass",
+            "basal_metabolic_rate",
+            "height"
+        ).inOrder()
+    }
+
+    @Test
+    fun excludesHistoryOnlyWhenAppropriate() {
+        // When full history is requested, never exclude
+        assertThat(HealthConnectRecordMapper.isExcludedHistory(10, 50, null, fullHistory = true)).isFalse()
+        assertThat(HealthConnectRecordMapper.isExcludedHistory(10, 50, HealthConnectSyncState.STATUS_SKIPPED, fullHistory = true)).isFalse()
+
+        // When no cutoff exists, never exclude
+        assertThat(HealthConnectRecordMapper.isExcludedHistory(10, null, null, fullHistory = false)).isFalse()
+
+        // New measurement created after cutoff is never excluded
+        assertThat(HealthConnectRecordMapper.isExcludedHistory(51, 50, null, fullHistory = false)).isFalse()
+        assertThat(HealthConnectRecordMapper.isExcludedHistory(100, 50, null, fullHistory = false)).isFalse()
+
+        // Historical measurement (id <= cutoff) with no previous sync or already skipped is excluded
+        assertThat(HealthConnectRecordMapper.isExcludedHistory(50, 50, null, fullHistory = false)).isTrue()
+        assertThat(HealthConnectRecordMapper.isExcludedHistory(10, 50, null, fullHistory = false)).isTrue()
+        assertThat(HealthConnectRecordMapper.isExcludedHistory(10, 50, HealthConnectSyncState.STATUS_SKIPPED, fullHistory = false)).isTrue()
+
+        // Historical measurement that was already synced or queued is not excluded
+        assertThat(HealthConnectRecordMapper.isExcludedHistory(10, 50, HealthConnectSyncState.STATUS_SYNCED, fullHistory = false)).isFalse()
+        assertThat(HealthConnectRecordMapper.isExcludedHistory(10, 50, HealthConnectSyncState.STATUS_PENDING, fullHistory = false)).isFalse()
     }
 
     private fun measurement(timestamp: Long, values: List<MeasurementValueWithType>) =

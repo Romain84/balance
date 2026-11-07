@@ -851,6 +851,7 @@ fun MeasurementCard(
                 val syncLabel = when {
                     syncState?.status == HealthConnectSyncState.STATUS_ERROR || syncState?.status == HealthConnectSyncState.STATUS_INVALID -> stringResource(R.string.health_connect_measurement_error)
                     syncState?.status == HealthConnectSyncState.STATUS_UNSUPPORTED -> stringResource(R.string.health_connect_measurement_unsupported)
+                    syncState?.status == HealthConnectSyncState.STATUS_SKIPPED -> stringResource(R.string.health_connect_measurement_skipped)
                     syncState?.status == HealthConnectSyncState.STATUS_SYNCED && syncState.lastSyncedRevision >= measurementWithValues.measurement.revision -> stringResource(R.string.health_connect_measurement_synced)
                     syncState != null -> stringResource(R.string.health_connect_measurement_pending)
                     else -> null
