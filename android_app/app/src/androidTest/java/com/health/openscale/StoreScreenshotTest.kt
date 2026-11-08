@@ -645,6 +645,7 @@ object ScreenshotDatabaseModule {
     @Provides fun provideMeasurementValueDao(db: AppDatabase) = db.measurementValueDao()
     @Provides fun provideMeasurementTypeDao(db: AppDatabase) = db.measurementTypeDao()
     @Provides fun provideHealthConnectSyncDao(db: AppDatabase) = db.healthConnectSyncDao()
+    @Provides fun provideHealthCheckinDao(db: AppDatabase) = db.healthCheckinDao()
 }
 
 @Module
