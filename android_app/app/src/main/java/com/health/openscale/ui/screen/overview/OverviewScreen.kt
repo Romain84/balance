@@ -72,6 +72,7 @@ import com.health.openscale.ui.screen.dialog.MedicalReportDialog
 import com.health.openscale.core.stoma.StomaNotificationManager
 import com.health.openscale.core.stoma.StomaTrackingRepository
 import com.health.openscale.core.stoma.StomaEventType
+import com.health.openscale.core.stoma.DailyStomaSummary
 import com.health.openscale.core.medication.MedicationRepository
 import com.health.openscale.core.medication.MedicationIntake
 import androidx.compose.material3.Button
