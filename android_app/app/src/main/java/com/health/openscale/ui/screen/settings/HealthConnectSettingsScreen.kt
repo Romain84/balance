@@ -295,7 +295,7 @@ fun HealthConnectSettingsScreen(
                     }
                     Button(
                         onClick = { viewModel.syncNow(fullHistory) },
-                        enabled = state.settings.enabled && state.hasAnyPermission,
+                        enabled = state.hasAnyPermission,
                         shape = RoundedCornerShape(8.dp)
                     ) {
                         Text("Envoyer les pesées", fontSize = 12.sp)

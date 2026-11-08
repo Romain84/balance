@@ -31,7 +31,7 @@ class HealthCheckinUseCases @Inject constructor(
     // --- Settings per user profile ---
 
     fun isHealthAssistantEnabled(userId: Int): Flow<Boolean> =
-        settings.observeSetting("health_assistant_enabled_$userId", false)
+        settings.observeSetting("health_assistant_enabled_$userId", true)
 
     suspend fun setHealthAssistantEnabled(userId: Int, enabled: Boolean) {
         settings.saveSetting("health_assistant_enabled_$userId", enabled)

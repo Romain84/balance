@@ -19,11 +19,14 @@ package com.health.openscale
 
 import android.app.Application
 import android.util.Log
+import androidx.health.connect.client.HealthConnectClient
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import com.health.openscale.core.data.MeasurementType
 import com.health.openscale.core.database.DatabaseRepository
 import com.health.openscale.core.facade.SettingsFacade
+import com.health.openscale.core.healthconnect.HealthConnectSyncManager
+import com.health.openscale.core.healthconnect.HealthConnectSyncScheduler
 import com.health.openscale.core.utils.LogManager
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
@@ -45,6 +48,10 @@ class OpenScaleApp : Application(), Configuration.Provider {
     lateinit var databaseRepository: DatabaseRepository
     @Inject
     lateinit var workerFactory: HiltWorkerFactory
+    @Inject
+    lateinit var healthConnectSyncManager: dagger.Lazy<HealthConnectSyncManager>
+    @Inject
+    lateinit var healthConnectSyncScheduler: dagger.Lazy<HealthConnectSyncScheduler>
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -53,6 +60,7 @@ class OpenScaleApp : Application(), Configuration.Provider {
 
         initializeLogging()
         initializeDefaultData()
+        initializeHealthConnect()
     }
 
     private fun initializeLogging() {
@@ -85,6 +93,30 @@ class OpenScaleApp : Application(), Configuration.Provider {
                 }
             } catch (e: Exception) {
                 LogManager.e(TAG, "Error during first-start data initialization", e)
+            }
+        }
+    }
+
+    private fun initializeHealthConnect() {
+        applicationScope.launch(Dispatchers.IO) {
+            try {
+                val manager = healthConnectSyncManager.get()
+                if (manager.availability() == HealthConnectClient.SDK_AVAILABLE) {
+                    val granted = manager.grantedPermissions()
+                    val hasWrite = granted.any { it in HealthConnectSyncManager.WRITE_PERMISSIONS }
+                    if (hasWrite) {
+                        LogManager.i(TAG, "Health Connect write permissions detected. Ensuring sync is enabled.")
+                        val isEnabled = manager.isEnabled()
+                        if (!isEnabled) {
+                            manager.setEnabled(true)
+                            manager.setHistoryScope(includeHistory = true)
+                        }
+                        healthConnectSyncScheduler.get().scheduleRecoverySync()
+                        healthConnectSyncScheduler.get().enqueue(fullHistory = false)
+                    }
+                }
+            } catch (e: Exception) {
+                LogManager.e(TAG, "Error initializing Health Connect sync", e)
             }
         }
     }

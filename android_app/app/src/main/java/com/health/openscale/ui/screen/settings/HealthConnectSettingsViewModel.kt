@@ -68,13 +68,16 @@ class HealthConnectSettingsViewModel @Inject constructor(
             anyPermission.value = hasAny
             syncManager.refreshPermissions(granted)
 
-            val settings = syncManager.settings.first()
-            if (settings.enabled) {
+            val currentEnabled = syncManager.isEnabled()
+            if (hasAny && !currentEnabled) {
+                syncManager.setEnabled(true)
+                syncManager.setHistoryScope(includeHistory = true)
+                scheduler.scheduleRecoverySync()
+                scheduler.enqueue(fullHistory = true)
+            } else if (currentEnabled) {
                 if (hasAny) {
                     scheduler.scheduleRecoverySync()
                     if (permissionsChanged) {
-                        // The history scope chosen on enable decides what is sent; a permission
-                        // change must not silently turn into a forced full re-upload.
                         scheduler.enqueue(fullHistory = false)
                     }
                 } else if (sdk == HealthConnectClient.SDK_AVAILABLE) {
@@ -123,6 +126,13 @@ class HealthConnectSettingsViewModel @Inject constructor(
     }
 
     fun syncNow(fullHistory: Boolean) {
-        viewModelScope.launch { scheduler.enqueue(fullHistory = fullHistory) }
+        viewModelScope.launch {
+            syncManager.setEnabled(true)
+            if (fullHistory) {
+                syncManager.setHistoryScope(includeHistory = true)
+            }
+            scheduler.scheduleRecoverySync()
+            scheduler.enqueue(fullHistory = fullHistory)
+        }
     }
 }

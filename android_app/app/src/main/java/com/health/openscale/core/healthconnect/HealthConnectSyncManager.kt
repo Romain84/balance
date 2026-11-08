@@ -80,8 +80,10 @@ class HealthConnectSyncManager @Inject constructor(
     private val historyCutoffKey = intPreferencesKey("history_cutoff_id")
 
     val settings: Flow<HealthConnectSettings> = context.healthConnectDataStore.data.map { values ->
+        val explicit = values[enabledKey]
+        val isAutoEnabled = explicit ?: (availability() == HealthConnectClient.SDK_AVAILABLE && grantedPermissions().any { it in WRITE_PERMISSIONS })
         HealthConnectSettings(
-            enabled = values[enabledKey] ?: false,
+            enabled = isAutoEnabled,
             lastSyncAt = values[lastSyncKey],
             progress = values[progressKey] ?: 0,
             total = values[totalKey] ?: 0,
@@ -126,8 +128,16 @@ class HealthConnectSyncManager @Inject constructor(
     private suspend fun historyCutoffId(): Int? =
         context.healthConnectDataStore.data.map { it[historyCutoffKey] }.first()
 
-    suspend fun isEnabled(): Boolean =
-        context.healthConnectDataStore.data.map { it[enabledKey] ?: false }.first()
+    suspend fun isEnabled(): Boolean {
+        val stored = context.healthConnectDataStore.data.map { it[enabledKey] }.first()
+        if (stored != null) return stored
+        return try {
+            if (availability() != HealthConnectClient.SDK_AVAILABLE) return false
+            grantedPermissions().any { it in WRITE_PERMISSIONS }
+        } catch (_: Exception) {
+            false
+        }
+    }
 
     suspend fun refreshPermissions(granted: Set<String>) {
         if (granted.containsAll(REQUIRED_PERMISSIONS)) {
@@ -229,7 +239,7 @@ class HealthConnectSyncManager @Inject constructor(
             writeMessage(error.message ?: "Could not check Health Connect permissions.")
             return HealthConnectSyncReport(waitingForPermissions = true)
         }
-        var waitingForPermissions = granted.none { it in REQUIRED_PERMISSIONS }
+        var waitingForPermissions = granted.none { it in WRITE_PERMISSIONS }
         if (waitingForPermissions) writeMessage("Health Connect write permissions are missing.")
 
         val measurements = if (onlyMeasurementId == null) {
@@ -363,21 +373,17 @@ class HealthConnectSyncManager @Inject constructor(
                 syncDao.save(
                     HealthConnectSyncState(
                         measurementId = measurement.id,
-                        status = if (missingPermissions) HealthConnectSyncState.STATUS_PENDING else HealthConnectSyncState.STATUS_SYNCED,
-                        lastSyncedRevision = if (missingPermissions) (previous?.lastSyncedRevision ?: 0L) else measurement.revision,
-                        lastSyncedAt = if (missingPermissions) previous?.lastSyncedAt else completedAt,
+                        status = HealthConnectSyncState.STATUS_SYNCED,
+                        lastSyncedRevision = measurement.revision,
+                        lastSyncedAt = completedAt,
                         lastAttemptAt = completedAt,
-                        lastError = if (missingPermissions) "Health Connect write permissions are missing for some data types." else null,
+                        lastError = if (missingPermissions) "Certaines autorisations optionnelles de données ne sont pas accordées." else null,
                         syncedRecords = writableRecords.size,
                         payloadHash = payloadHash,
                         clientRecordVersion = recordVersion
                     )
                 )
-                if (missingPermissions) {
-                    writeMessage("Some Health Connect write permissions are missing.")
-                } else {
-                    synced++
-                }
+                synced++
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
