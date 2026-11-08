@@ -75,6 +75,7 @@ import com.health.openscale.core.stoma.StomaTrackingRepository
 import com.health.openscale.ui.navigation.Routes
 import com.health.openscale.ui.shared.SharedViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -107,10 +108,10 @@ fun DoctorConsultationScreen(
         val startDate = cal.timeInMillis
 
         withContext(Dispatchers.IO) {
-            val allMeas = sharedViewModel.getMeasurementsForUser(user.id)
+            val allMeas = sharedViewModel.getMeasurementsForUser(user.id).first()
             val filteredMeas = allMeas.filter { it.measurement.timestamp >= startDate }
 
-            val allCheckins = sharedViewModel.getCheckinsForUser(user.id)
+            val allCheckins = sharedViewModel.getHealthCheckinsForUser(user.id).first()
             val filteredCheckins = allCheckins.filter { it.timestamp >= startDate }
 
             val reader = ClinicalHealthConnectReader(context)
