@@ -369,7 +369,6 @@ object MedicalReportGenerator {
         canvas.drawText("Document confidentiel généré localement. Conforme aux recommandations de suivi pluridisciplinaire.", 22f, PAGE_HEIGHT - 20f, paint)
         canvas.drawText("Page 1 / 2", PAGE_WIDTH - 65f, PAGE_HEIGHT - 20f, paint)
     }
-    }
 
     private fun drawPage2(
         canvas: Canvas,
