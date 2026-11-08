@@ -4,7 +4,7 @@
     android:minHeight="40dp"
     android:updatePeriodMillis="0"
     android:resizeMode="horizontal|vertical"
-    android:widgetCategory="home_screen"
+    android:widgetCategory="home_screen|keyguard"
     android:initialLayout="@layout/glance_default_loading_layout"
     android:configure="com.health.openscale.ui.widget.MeasurementWidgetConfigActivity"
     />

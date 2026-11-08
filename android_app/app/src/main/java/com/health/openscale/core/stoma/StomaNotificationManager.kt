@@ -22,7 +22,7 @@ import com.health.openscale.R
 
 object StomaNotificationManager {
 
-    const val CHANNEL_ID = "stoma_hydration_channel"
+    const val CHANNEL_ID = "stoma_hydration_live_v3"
     const val NOTIFICATION_ID = 2026
 
     const val ACTION_ADD_WATER_250 = "com.health.openscale.stoma.ACTION_ADD_WATER_250"
@@ -34,14 +34,20 @@ object StomaNotificationManager {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val name = "Hydratation & Stomie en direct"
             val descriptionText = "Bandeau permanent sur l'écran de verrouillage pour le suivi de l'eau et de la stomie"
-            val importance = NotificationManager.IMPORTANCE_LOW
+            val importance = NotificationManager.IMPORTANCE_DEFAULT
             val channel = NotificationChannel(CHANNEL_ID, name, importance).apply {
                 description = descriptionText
                 setShowBadge(false)
-                lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
+                setSound(null, null)
+                enableVibration(false)
+                lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
             }
             val notificationManager: NotificationManager =
                 context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            try {
+                notificationManager.deleteNotificationChannel("stoma_hydration_channel")
+                notificationManager.deleteNotificationChannel("stoma_hydration_channel_v2")
+            } catch (_: Exception) {}
             notificationManager.createNotificationChannel(channel)
         }
     }
@@ -93,6 +99,30 @@ object StomaNotificationManager {
             append("💡 Conseil : ${summary.clinicalAdvice}")
         }
 
+        val actionWater250 = NotificationCompat.Action.Builder(
+            R.drawable.ic_water,
+            "+250 ml 💧",
+            pWater250
+        ).setAuthenticationRequired(false).build()
+
+        val actionWater500 = NotificationCompat.Action.Builder(
+            R.drawable.ic_water,
+            "+500 ml 🥤",
+            pWater500
+        ).setAuthenticationRequired(false).build()
+
+        val actionPouch = NotificationCompat.Action.Builder(
+            R.drawable.ic_widget_circle,
+            "🚽 Poche",
+            pPouch
+        ).setAuthenticationRequired(false).build()
+
+        val actionSupport = NotificationCompat.Action.Builder(
+            R.drawable.ic_widget_circle,
+            "🛡️ Support",
+            pSupport
+        ).setAuthenticationRequired(false).build()
+
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_water)
             .setContentTitle(contentTitle)
@@ -102,12 +132,12 @@ object StomaNotificationManager {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setContentIntent(contentPendingIntent)
-            .addAction(R.drawable.ic_water, "+250 ml 💧", pWater250)
-            .addAction(R.drawable.ic_water, "+500 ml 🥤", pWater500)
-            .addAction(R.drawable.ic_widget_circle, "🚽 Poche", pPouch)
-            .addAction(R.drawable.ic_widget_circle, "🛡️ Support", pSupport)
+            .addAction(actionWater250)
+            .addAction(actionWater500)
+            .addAction(actionPouch)
+            .addAction(actionSupport)
             .build()
 
         try {
