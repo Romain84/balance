@@ -42,7 +42,21 @@ jobs:
           java-version: "21"
           cache: "gradle"
       - name: Run unit tests
-        run: ./gradlew testDebugUnitTest
+        run: |
+          set -o pipefail
+          ./gradlew testDebugUnitTest --stacktrace 2>&1 | tee ../test_output.log
+      - name: Export failure details
+        if: failure()
+        run: |
+          cd ..
+          echo "=== UNIT TEST FAILED ==="
+          git config user.name "CI Diagnostic"
+          git config user.email "ci@openscale.local"
+          git checkout -B ci-diag
+          cp test_output.log build_error.txt
+          git add -f build_error.txt
+          git commit -m "ci: diagnostic test failure"
+          git push -f origin ci-diag
       - name: Compile instrumented tests
         run: ./gradlew compileDebugAndroidTestKotlin
       - name: Build APK
