@@ -22,6 +22,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -63,10 +65,15 @@ import androidx.compose.material.icons.outlined.Link
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.filled.Medication
+import androidx.compose.material.icons.filled.WaterDrop
 import com.health.openscale.ui.screen.dialog.HealthCheckinSheet
 import com.health.openscale.ui.screen.dialog.MedicalReportDialog
 import com.health.openscale.core.stoma.StomaNotificationManager
 import com.health.openscale.core.stoma.StomaTrackingRepository
+import com.health.openscale.core.stoma.StomaEventType
+import com.health.openscale.core.medication.MedicationRepository
+import com.health.openscale.core.medication.MedicationIntake
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
@@ -74,10 +81,19 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
@@ -162,6 +178,17 @@ import kotlin.math.abs
 
 
 // ---------------------------------------------------------------------------
+// OverviewSection Tabs
+// ---------------------------------------------------------------------------
+
+enum class OverviewSection(val label: String, val emoji: String) {
+    SYNTHESIS("Synthèse", "🏠"),
+    HYDRATION("Hydratation & Stomie", "💧"),
+    MEDICATION("Traitements", "💊"),
+    MEASUREMENTS("Mesures & Balance", "⚖️")
+}
+
+// ---------------------------------------------------------------------------
 // OverviewScreen
 // ---------------------------------------------------------------------------
 
@@ -211,6 +238,10 @@ fun OverviewScreen(
     val stomaRepo = remember { StomaTrackingRepository(context) }
     val stomaSummary by stomaRepo.todaySummary.collectAsState()
     var isLockscreenNotifEnabled by remember { mutableStateOf(stomaRepo.isNotificationEnabled()) }
+
+    var selectedSection by rememberSaveable { mutableStateOf(OverviewSection.SYNTHESIS) }
+    val medRepo = remember { MedicationRepository(context) }
+    var medicationIntakes by remember { mutableStateOf(medRepo.loadIntakes()) }
 
     val onAddWater: (Int) -> Unit = remember(stomaRepo, isLockscreenNotifEnabled) {
         { amount ->
@@ -404,7 +435,6 @@ fun OverviewScreen(
                 sharedViewModel.setTopBarTitle(resources.getString(R.string.route_title_overview))
                 val actions = mutableListOf<TopBarAction>()
                 actions.add(bluetoothAction)
-                actions.add(addMeasurementAction)
                 timeFilterAction?.let { actions.add(it) }
                 sharedViewModel.setTopBarActions(actions)
             }
@@ -446,70 +476,15 @@ fun OverviewScreen(
                 when (val state = overviewState) {
                     is SharedViewModel.UiState.Success -> {
 
-                        if (aggregatedItems.isEmpty()) {
-                            Column(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxSize()
-                                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                                verticalArrangement = Arrangement.spacedBy(16.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                if (isHealthAssistantEnabled && !isDrillDown) {
-                                    HealthAssistantCard(
-                                        latestCheckin = latestCheckin,
-                                        onCheckinClick = {
-                                            sharedViewModel.openHealthCheckinSheet(
-                                                userId = activeUserId,
-                                                measurementId = null,
-                                                existingCheckin = latestCheckin
-                                            )
-                                        },
-                                        onReportClick = {
-                                            sharedViewModel.openMedicalReportDialog()
-                                        },
-                                        onOrderClick = {
-                                            navController.navigate(Routes.STOMA_ORDER)
-                                        },
-                                        onConsultationClick = {
-                                            navController.navigate(Routes.DOCTOR_CONSULTATION)
-                                        },
-                                        onMedicationClick = {
-                                            navController.navigate(Routes.MEDICATION_LOG)
-                                        },
-                                        isStomaEnabled = isStomaEnabled
-                                    )
-                                    if (isStomaEnabled) {
-                                        StomaHydrationLiveCard(
-                                            summary = stomaSummary,
-                                            isNotificationEnabled = isLockscreenNotifEnabled,
-                                            onAddWater = onAddWater,
-                                            onLogPouch = onLogPouch,
-                                            onLogSupport = onLogSupport,
-                                            onToggleNotification = onToggleLockscreenNotif
-                                        )
-                                    }
-                                }
-                                Box(
-                                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    NoMeasurementsCard(
-                                        navController  = navController,
-                                        selectedUserId = selectedUserId,
-                                    )
-                                }
+                        // Scroll to top when the newest item changes
+                        val topId = aggregatedItems.firstOrNull()
+                            ?.enriched?.measurementWithValues?.measurement?.id
+                        LaunchedEffect(topId, aggregatedItems.size) {
+                            if (topId != null && !listState.isScrollInProgress) {
+                                delay(60.milliseconds)
+                                listState.smartScrollTo(0)
                             }
-                        } else {
-                            // Scroll to top when the newest item changes
-                            val topId = aggregatedItems.firstOrNull()
-                                ?.enriched?.measurementWithValues?.measurement?.id
-                            LaunchedEffect(topId, aggregatedItems.size) {
-                                if (topId != null && !listState.isScrollInProgress) {
-                                    delay(60.milliseconds)
-                                    listState.smartScrollTo(0)
-                                }
-                            }
+                        }
 
                             // ── Chart + divider + goals (hidden in drill-down) ────────
                             val chartContent: @Composable (Modifier) -> Unit = { chartModifier ->
@@ -692,47 +667,6 @@ fun OverviewScreen(
                                         .padding(horizontal = 16.dp, vertical = 4.dp),
                                     verticalArrangement   = Arrangement.spacedBy(12.dp),
                                 ) {
-                                    if (isHealthAssistantEnabled && !isDrillDown) {
-                                        item(key = "health_assistant_card") {
-                                            HealthAssistantCard(
-                                                latestCheckin = latestCheckin,
-                                                onCheckinClick = {
-                                                    val lastId = aggregatedItems.firstOrNull()?.enriched?.measurementWithValues?.measurement?.id
-                                                    sharedViewModel.openHealthCheckinSheet(
-                                                        userId = activeUserId,
-                                                        measurementId = lastId,
-                                                        existingCheckin = latestCheckin
-                                                    )
-                                                },
-                                                onReportClick = {
-                                                    sharedViewModel.openMedicalReportDialog()
-                                                },
-                                                onOrderClick = {
-                                                    navController.navigate(Routes.STOMA_ORDER)
-                                                },
-                                                onConsultationClick = {
-                                                    navController.navigate(Routes.DOCTOR_CONSULTATION)
-                                                },
-                                                onMedicationClick = {
-                                                    navController.navigate(Routes.MEDICATION_LOG)
-                                                },
-                                                isStomaEnabled = isStomaEnabled
-                                            )
-                                        }
-                                        if (isStomaEnabled) {
-                                            item(key = "stoma_hydration_live_card") {
-                                                StomaHydrationLiveCard(
-                                                    summary = stomaSummary,
-                                                    isNotificationEnabled = isLockscreenNotifEnabled,
-                                                    onAddWater = onAddWater,
-                                                    onLogPouch = onLogPouch,
-                                                    onLogSupport = onLogSupport,
-                                                    onToggleNotification = onToggleLockscreenNotif
-                                                )
-                                            }
-                                        }
-                                    }
-
                                     itemsIndexed(
                                         items = aggregatedItems,
                                         // Must not depend on isAggregated: that flag comes from the
@@ -808,65 +742,198 @@ fun OverviewScreen(
                                 }
                             }
 
-                            // Expanded windows put the chart beside the list instead of above it.
-                            if (!isDrillDown && useSideBySide) {
-                                MeasurementChartTypeFilterRow(
-                                    sharedViewModel    = sharedViewModel,
-                                    screenContextName  = SettingsPreferenceKeys.OVERVIEW_SCREEN_CONTEXT,
-                                    showFilterControls = true,
-                                )
-                                Row(Modifier.weight(1f).fillMaxWidth()) {
-                                    chartContent(Modifier.weight(0.6f).fillMaxHeight())
-                                    VerticalDivider()
-                                    Column(Modifier.weight(0.4f).fillMaxHeight()) {
-                                        goalsSection()
-                                        measurementList(Modifier.weight(1f))
-                                    }
+                        if (isDrillDown) {
+                            if (aggregatedItems.isEmpty()) {
+                                Box(
+                                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    NoMeasurementsCard(
+                                        navController = navController,
+                                        selectedUserId = selectedUserId,
+                                    )
                                 }
                             } else {
-                                if (!isDrillDown) {
-                                    if (localSplitterWeight > 0f) Box(modifier = Modifier.weight(localSplitterWeight)) {
-                                        chartContent(Modifier.fillMaxWidth())
+                                measurementList(Modifier.weight(1f))
+                            }
+                        } else {
+                            // ── Compartmentalized Tabs ──────────────────────────────────────────
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                color = MaterialTheme.colorScheme.surface,
+                                tonalElevation = 1.dp
+                            ) {
+                                ScrollableTabRow(
+                                    selectedTabIndex = selectedSection.ordinal,
+                                    edgePadding = 12.dp,
+                                    divider = { HorizontalDivider() }
+                                ) {
+                                    OverviewSection.values().forEach { section ->
+                                        Tab(
+                                            selected = selectedSection == section,
+                                            onClick = { selectedSection = section },
+                                            text = {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                    modifier = Modifier.padding(vertical = 4.dp)
+                                                ) {
+                                                    Text(section.emoji, fontSize = 15.sp)
+                                                    Text(
+                                                        text = section.label,
+                                                        fontWeight = if (selectedSection == section) FontWeight.Bold else FontWeight.Medium,
+                                                        color = if (selectedSection == section) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
+                                        )
                                     }
-
-                                    // Draggable + tappable splitter handle (drag = resize, tap = collapse/show).
-                                    // Top padding lives on the handle (not the chart) so the spacing is
-                                    // kept even when the chart is collapsed and not rendered. The bottom
-                                    // gap comes from the goals/list top padding.
-                                    ChartSplitterHandle(
-                                        modifier  = Modifier.padding(top = 8.dp),
-                                        collapsed = localSplitterWeight <= 0f,
-                                        onDrag = { dy ->
-                                            localSplitterWeight =
-                                                (localSplitterWeight + dy / 2000f).coerceIn(0f, 0.8f)
-                                        },
-                                        onDragEnd = {
-                                            scope.launch {
-                                                sharedViewModel.setSplitterWeight(
-                                                    SettingsPreferenceKeys.OVERVIEW_SCREEN_CONTEXT,
-                                                    localSplitterWeight,
-                                                )
-                                            }
-                                        },
-                                        onToggleCollapse = {
-                                            localSplitterWeight = if (localSplitterWeight > 0f) {
-                                                lastExpandedWeight = localSplitterWeight
-                                                0f
-                                            } else {
-                                                lastExpandedWeight.takeIf { it > 0f } ?: 0.3f
-                                            }
-                                            scope.launch {
-                                                sharedViewModel.setSplitterWeight(
-                                                    SettingsPreferenceKeys.OVERVIEW_SCREEN_CONTEXT,
-                                                    localSplitterWeight,
-                                                )
-                                            }
-                                        },
-                                    )
-
-                                    goalsSection()
                                 }
-                                measurementList(Modifier.weight(if (isDrillDown) 1f else 1f - localSplitterWeight))
+                            }
+
+                            when (selectedSection) {
+                                OverviewSection.SYNTHESIS -> {
+                                    SynthesisSection(
+                                        user = activeUser,
+                                        latestCheckin = latestCheckin,
+                                        stomaSummary = stomaSummary,
+                                        medicationIntakes = medicationIntakes,
+                                        latestMeasurement = aggregatedItems.firstOrNull(),
+                                        onNavigateToSection = { selectedSection = it },
+                                        onCheckinClick = {
+                                            sharedViewModel.openHealthCheckinSheet(
+                                                userId = activeUserId,
+                                                measurementId = null,
+                                                existingCheckin = latestCheckin
+                                            )
+                                        },
+                                        onReportClick = { sharedViewModel.openMedicalReportDialog() },
+                                        onOrderClick = { navController.navigate(Routes.STOMA_ORDER) },
+                                        onConsultationClick = { navController.navigate(Routes.DOCTOR_CONSULTATION) },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+
+                                OverviewSection.HYDRATION -> {
+                                    HydrationSection(
+                                        stomaRepo = stomaRepo,
+                                        summary = stomaSummary,
+                                        isNotificationEnabled = isLockscreenNotifEnabled,
+                                        onAddWater = onAddWater,
+                                        onLogPouch = onLogPouch,
+                                        onLogSupport = onLogSupport,
+                                        onToggleNotification = onToggleLockscreenNotif,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+
+                                OverviewSection.MEDICATION -> {
+                                    MedicationTrackingSection(
+                                        context = context,
+                                        medRepo = medRepo,
+                                        intakes = medicationIntakes,
+                                        onIntakesUpdated = { medicationIntakes = medRepo.loadIntakes() },
+                                        onNavigateToFullLog = { navController.navigate(Routes.MEDICATION_LOG) },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+
+                                OverviewSection.MEASUREMENTS -> {
+                                    if (aggregatedItems.isEmpty()) {
+                                        Box(
+                                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            NoMeasurementsCard(
+                                                navController = navController,
+                                                selectedUserId = selectedUserId,
+                                            )
+                                        }
+                                    } else {
+                                        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                                            if (useSideBySide) {
+                                                Column(Modifier.fillMaxSize()) {
+                                                    MeasurementChartTypeFilterRow(
+                                                        sharedViewModel = sharedViewModel,
+                                                        screenContextName = SettingsPreferenceKeys.OVERVIEW_SCREEN_CONTEXT,
+                                                        showFilterControls = true,
+                                                    )
+                                                    Row(Modifier.weight(1f).fillMaxWidth()) {
+                                                        chartContent(Modifier.weight(0.6f).fillMaxHeight())
+                                                        VerticalDivider()
+                                                        Column(Modifier.weight(0.4f).fillMaxHeight()) {
+                                                            goalsSection()
+                                                            measurementList(Modifier.weight(1f))
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                Column(Modifier.fillMaxSize()) {
+                                                    if (localSplitterWeight > 0f) {
+                                                        Box(modifier = Modifier.weight(localSplitterWeight)) {
+                                                            chartContent(Modifier.fillMaxWidth())
+                                                        }
+                                                    }
+                                                    ChartSplitterHandle(
+                                                        modifier = Modifier.padding(top = 8.dp),
+                                                        collapsed = localSplitterWeight <= 0f,
+                                                        onDrag = { dy ->
+                                                            localSplitterWeight =
+                                                                (localSplitterWeight + dy / 2000f).coerceIn(0f, 0.8f)
+                                                        },
+                                                        onDragEnd = {
+                                                            scope.launch {
+                                                                sharedViewModel.setSplitterWeight(
+                                                                    SettingsPreferenceKeys.OVERVIEW_SCREEN_CONTEXT,
+                                                                    localSplitterWeight,
+                                                                )
+                                                            }
+                                                        },
+                                                        onToggleCollapse = {
+                                                            localSplitterWeight = if (localSplitterWeight > 0f) {
+                                                                lastExpandedWeight = localSplitterWeight
+                                                                0f
+                                                            } else {
+                                                                lastExpandedWeight.takeIf { it > 0f } ?: 0.3f
+                                                            }
+                                                            scope.launch {
+                                                                sharedViewModel.setSplitterWeight(
+                                                                    SettingsPreferenceKeys.OVERVIEW_SCREEN_CONTEXT,
+                                                                    localSplitterWeight,
+                                                                )
+                                                            }
+                                                        },
+                                                    )
+                                                    goalsSection()
+                                                    measurementList(Modifier.weight(1f - localSplitterWeight))
+                                                }
+                                            }
+
+                                            FloatingActionButton(
+                                                onClick = {
+                                                    if (selectedUserId != null && selectedUserId != 0) {
+                                                        navController.navigate(
+                                                            Routes.measurementDetail(
+                                                                measurementId = null,
+                                                                userId = selectedUserId!!
+                                                            )
+                                                        )
+                                                    }
+                                                },
+                                                modifier = Modifier
+                                                    .align(Alignment.BottomEnd)
+                                                    .padding(16.dp),
+                                                containerColor = MaterialTheme.colorScheme.primary,
+                                                contentColor = MaterialTheme.colorScheme.onPrimary
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Add,
+                                                    contentDescription = stringResource(R.string.action_add_measurement_desc)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -964,153 +1031,985 @@ fun OverviewScreen(
     }
 }
 
+// ---------------------------------------------------------------------------
+// SynthesisSection (Cockpit / Executive Summary)
+// ---------------------------------------------------------------------------
+
 @Composable
-fun HealthAssistantCard(
+fun SynthesisSection(
+    user: com.health.openscale.core.data.User?,
     latestCheckin: com.health.openscale.core.data.HealthCheckin?,
+    stomaSummary: DailyStomaSummary,
+    medicationIntakes: List<MedicationIntake>,
+    latestMeasurement: AggregatedMeasurement?,
+    onNavigateToSection: (OverviewSection) -> Unit,
     onCheckinClick: () -> Unit,
     onReportClick: () -> Unit,
-    onOrderClick: () -> Unit = {},
-    onConsultationClick: () -> Unit = {},
-    onMedicationClick: () -> Unit = {},
-    isStomaEnabled: Boolean = true
+    onOrderClick: () -> Unit,
+    onConsultationClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
+    val scrollState = rememberScrollState()
+    val todayFmt = remember { SimpleDateFormat("EEEE d MMMM yyyy", Locale.FRANCE) }
+    val todayDateStr = remember { todayFmt.format(Date()).replaceFirstChar { it.uppercase() } }
+
+    val todayIntakes = remember(medicationIntakes) {
+        medicationIntakes.filter { android.text.format.DateUtils.isToday(it.timestamp) }
+    }
+    val pendingEvaluations = remember(medicationIntakes) {
+        val now = System.currentTimeMillis()
+        val sixHoursAgo = now - 6 * 3600 * 1000L
+        medicationIntakes.filter {
+            it.postPainScore == null && it.timestamp >= sixHoursAgo && it.initialPainScore != null
+        }
+    }
+
+    val latestWeightValue = latestMeasurement?.enriched?.valuesWithTrend?.find { it.currentValue.type.key == MeasurementType.WEIGHT }
+    val latestWeightStr = latestWeightValue?.currentValue?.let {
+        LocaleUtils.formatValueForDisplay(it.value.floatValue.toString(), it.type.unit)
+    }
+    val latestWaterValue = latestMeasurement?.enriched?.valuesWithTrend?.find { it.currentValue.type.key == MeasurementType.WATER }
+    val latestWaterStr = latestWaterValue?.currentValue?.let {
+        LocaleUtils.formatValueForDisplay(it.value.floatValue.toString(), it.type.unit)
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(scrollState)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // --- 1. CARTOUCHE PATIENTE & CHECK-IN QUOTIDIEN ---
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+            )
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.LocalHospital,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Column {
+                            Text(
+                                text = "Bilan Clinique Quotidien",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = todayDateStr,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    FilledTonalButton(
+                        onClick = onReportClick,
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Bilan PDF", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+
+                if (latestCheckin != null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // EVA Badge
+                        val pain = latestCheckin.painScore
+                        val painColor = when {
+                            pain == null -> Color(0xFF757575)
+                            pain <= 3 -> Color(0xFF2E7D32)
+                            pain <= 6 -> Color(0xFFE65100)
+                            else -> Color(0xFFC62828)
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = painColor.copy(alpha = 0.15f),
+                            border = BorderStroke(1.dp, painColor.copy(alpha = 0.4f))
+                        ) {
+                            Text(
+                                text = if (pain != null) "EVA $pain/10" else "EVA non renseignée",
+                                color = painColor,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+
+                        // Stoma Transit Badge
+                        val stomaLabel = when (latestCheckin.stomaOutput) {
+                            "HIGH_LIQUID" -> "Stomie liquide ⚠️"
+                            "SLOW" -> "Stomie ralentie"
+                            else -> "Stomie normale 🟢"
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFF00365B).copy(alpha = 0.1f)
+                        ) {
+                            Text(
+                                text = stomaLabel,
+                                color = Color(0xFF00365B),
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+
+                        // Hormonal Sensation (Post-hysterectomy)
+                        if (latestCheckin.cycleSensation == true) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFFAD1457).copy(alpha = 0.1f)
+                            ) {
+                                Text(
+                                    text = "Cycle ressenti 🌸",
+                                    color = Color(0xFFAD1457),
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 12.sp,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    Button(
+                        onClick = onCheckinClick,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Modifier le Check-in Santé 🩺")
+                    }
+                } else {
+                    Text(
+                        text = "Aucun bilan de santé enregistré pour aujourd'hui.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Button(
+                        onClick = onCheckinClick,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("🩺 Remplir mon Check-in Santé du Jour", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        // --- 2. VOS PILIERS DE SANTÉ (CLOISONNEMENT) ---
+        Text(
+            text = "Vos Piliers de Suivi Clinique",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+
+        // Pilier 1: Hydratation & Stomie
+        val waterTarget = stomaSummary.targetWaterMl.coerceAtLeast(1)
+        val waterCurrent = stomaSummary.totalWaterMl
+        val waterPct = ((waterCurrent.toFloat() / waterTarget) * 100).toInt().coerceIn(0, 100)
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onNavigateToSection(OverviewSection.HYDRATION) },
+            shape = RoundedCornerShape(14.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFF0F7F9)),
+            border = BorderStroke(1.dp, Color(0xFFB2DFDB))
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("💧", fontSize = 20.sp)
+                        Text(
+                            text = "Hydratation & Stomie",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF00365B)
+                        )
+                    }
+                    Text(
+                        text = "Gérer →",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF0077A8)
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Eau bue auj. : ${String.format(Locale.FRANCE, "%.2f", waterCurrent / 1000.0)} L / ${String.format(Locale.FRANCE, "%.2f", waterTarget / 1000.0)} L",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF37474F)
+                    )
+                    Text(
+                        text = "$waterPct%",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF0077A8)
+                    )
+                }
+
+                LinearProgressIndicator(
+                    progress = { (waterCurrent.toFloat() / waterTarget).coerceIn(0f, 1f) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp)
+                        .clip(RoundedCornerShape(4.dp)),
+                    color = Color(0xFF009DA8),
+                    trackColor = Color(0xFFE0F2F1)
+                )
+
+                val supportStatus = when (stomaSummary.daysSinceLastSupportChange) {
+                    0 -> "Support changé aujourd'hui"
+                    1 -> "Support changé hier (1j)"
+                    else -> "Support : il y a ${stomaSummary.daysSinceLastSupportChange} j"
+                }
+                Text(
+                    text = "🚽 ${stomaSummary.pouchChangeCount} poche(s) changée(s) auj. • 🛡️ $supportStatus",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF455A64)
+                )
+            }
+        }
+
+        // Pilier 2: Traitements & Douleur
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onNavigateToSection(OverviewSection.MEDICATION) },
+            shape = RoundedCornerShape(14.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFF9F7F5)),
+            border = BorderStroke(1.dp, Color(0xFFFFCCBC))
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("💊", fontSize = 20.sp)
+                        Text(
+                            text = "Traitements & Soulagement",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF4E342E)
+                        )
+                    }
+                    Text(
+                        text = "Consigner →",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFD84315)
+                    )
+                }
+
+                Text(
+                    text = "${todayIntakes.size} prise(s) enregistrée(s) aujourd'hui",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF3E2723)
+                )
+
+                if (pendingEvaluations.isNotEmpty()) {
+                    val p = pendingEvaluations.first()
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFFFFF3E0),
+                        border = BorderStroke(1.dp, Color(0xFFFFB74D))
+                    ) {
+                        Text(
+                            text = "⚠️ Évaluation H+2 requise pour ${p.name} (EVA initial: ${p.initialPainScore}/10)",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFE65100),
+                            modifier = Modifier.padding(8.dp)
+                        )
+                    }
+                } else if (todayIntakes.isNotEmpty()) {
+                    val last = todayIntakes.first()
+                    val timeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(last.timestamp))
+                    Text(
+                        text = "Dernière prise : ${last.name} (${last.dosage}) à $timeStr",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF5D4037)
+                    )
+                } else {
+                    Text(
+                        text = "Aucune prise antalgique aujourd'hui. Appuyez pour ajouter Lamaline, Acupan...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF795548)
+                    )
+                }
+            }
+        }
+
+        // Pilier 3: Mesures & Balance
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onNavigateToSection(OverviewSection.MEASUREMENTS) },
+            shape = RoundedCornerShape(14.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F6F8)),
+            border = BorderStroke(1.dp, Color(0xFFCFD8DC))
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("⚖️", fontSize = 20.sp)
+                        Text(
+                            text = "Mesures & Impédancemétrie",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF263238)
+                        )
+                    }
+                    Text(
+                        text = "Courbes →",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF455A64)
+                    )
+                }
+
+                if (latestMeasurement != null) {
+                    val dateStr = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(
+                        Date(latestMeasurement.enriched.measurementWithValues.measurement.timestamp)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Dernière pesée : ${latestWeightStr ?: "--"}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF263238)
+                        )
+                        if (latestWaterStr != null) {
+                            Text(
+                                text = "Eau : $latestWaterStr",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF0077A8)
+                            )
+                        }
+                    }
+                    Text(
+                        text = "Mesuré le $dateStr",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF78909C)
+                    )
+                } else {
+                    Text(
+                        text = "Aucune pesée enregistrée. Connectez la balance Bluetooth pour synchroniser vos données.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF78909C)
+                    )
+                }
+            }
+        }
+
+        // --- 3. ACCÈS RAPIDES MÉDICAUX & MATÉRIEL ---
+        Text(
+            text = "Outils Médicaux & Prise en Charge",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(
+                onClick = onOrderClick,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Default.ShoppingCart, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Commande 📦", maxLines = 1, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+
+            OutlinedButton(
+                onClick = onConsultationClick,
+                modifier = Modifier.weight(1.2f),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = Color(0xFF00365B)
+                )
+            ) {
+                Text("🩺 Consultation", maxLines = 1, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// HydrationSection & TodayStomaEventsCard
+// ---------------------------------------------------------------------------
+
+@Composable
+fun HydrationSection(
+    stomaRepo: StomaTrackingRepository,
+    summary: DailyStomaSummary,
+    isNotificationEnabled: Boolean,
+    onAddWater: (Int) -> Unit,
+    onLogPouch: () -> Unit,
+    onLogSupport: () -> Unit,
+    onToggleNotification: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val scrollState = rememberScrollState()
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(scrollState)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Live hydration & stoma care card
+        StomaHydrationLiveCard(
+            summary = summary,
+            isNotificationEnabled = isNotificationEnabled,
+            onAddWater = onAddWater,
+            onLogPouch = onLogPouch,
+            onLogSupport = onLogSupport,
+            onToggleNotification = onToggleNotification
+        )
+
+        // Today's events card
+        TodayStomaEventsCard(
+            stomaRepo = stomaRepo,
+            summary = summary
+        )
+
+        // Clinical advice card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
+            border = BorderStroke(1.dp, Color(0xFFA5D6A7))
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = "💡 Recommandation Clinique Stomie & Hydratation",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF1B5E20)
+                )
+                Text(
+                    text = "En colostomie, une hydratation minimale de 2,0 à 2,5 L/jour est indispensable pour assurer la fluidité du transit et compenser les pertes. Lors des épisodes de selles liquides ou d'Endo-Belly, privilégiez les bouillons salés et l'eau riche en électrolytes.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF2E7D32)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun TodayStomaEventsCard(
+    stomaRepo: StomaTrackingRepository,
+    summary: DailyStomaSummary
+) {
+    val context = LocalContext.current
+    val todayEvents = remember(summary) {
+        stomaRepo.getAllEvents()
+            .filter { android.text.format.DateUtils.isToday(it.timestamp) }
+            .reversed()
+    }
+    val timeFmt = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
-        )
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(34.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.LocalHospital,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        Text(
-                            text = "Assistant Santé Clinique",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        val statusText = if (latestCheckin != null) {
-                            val pain = if (latestCheckin.painScore != null) "EVA ${latestCheckin.painScore}/10" else ""
-                            val stoma = when (latestCheckin.stomaOutput) {
-                                "HIGH_LIQUID" -> "Stomie liquide ⚠️"
-                                "SLOW" -> "Stomie ralentie"
-                                else -> "Stomie normale"
+                Text(
+                    text = "Journal des Saisies du Jour",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF263238)
+                )
+
+                if (todayEvents.isNotEmpty()) {
+                    TextButton(
+                        onClick = {
+                            if (stomaRepo.undoLastEvent()) {
+                                Toast.makeText(context, "Dernière action annulée", Toast.LENGTH_SHORT).show()
+                                if (stomaRepo.isNotificationEnabled()) {
+                                    StomaNotificationManager.showOrUpdateNotification(context, stomaRepo.getTodaySummary())
+                                }
                             }
-                            val cycle = if (latestCheckin.cycleSensation == true) " • Cycle ressenti 🌸" else ""
-                            "$pain • $stoma$cycle"
-                        } else {
-                            "Aucun check-in aujourd'hui"
+                        }
+                    ) {
+                        Text("Annuler dernière saisie ↩️", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
+
+            if (todayEvents.isEmpty()) {
+                Text(
+                    text = "Aucune action enregistrée aujourd'hui. Utilisez les boutons ci-dessus pour ajouter vos verres d'eau et changements de poche.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF78909C)
+                )
+            } else {
+                todayEvents.forEach { ev ->
+                    val (icon, label) = when (ev.type) {
+                        StomaEventType.WATER -> "💧" to "+${ev.amountMl} ml d'eau bue"
+                        StomaEventType.POUCH_CHANGE -> "🚽" to "Changement de poche SenSura Mio"
+                        StomaEventType.SUPPORT_CHANGE -> "🛡️" to "Changement support complet (semi-convexe)"
+                    }
+                    val timeStr = timeFmt.format(Date(ev.timestamp))
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(icon, fontSize = 16.sp)
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color(0xFF37474F)
+                            )
                         }
                         Text(
-                            text = statusText,
+                            text = timeStr,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF78909C)
                         )
                     }
-                }
-
-                FilledTonalButton(
-                    onClick = onReportClick,
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Description,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Bilan PDF", style = MaterialTheme.typography.labelMedium)
+                    HorizontalDivider(color = Color(0xFFECEFF1))
                 }
             }
+        }
+    }
+}
 
-            Spacer(modifier = Modifier.height(10.dp))
+// ---------------------------------------------------------------------------
+// MedicationTrackingSection
+// ---------------------------------------------------------------------------
 
-            Row(
+@Composable
+fun MedicationTrackingSection(
+    context: android.content.Context,
+    medRepo: MedicationRepository,
+    intakes: List<MedicationIntake>,
+    onIntakesUpdated: () -> Unit,
+    onNavigateToFullLog: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val scrollState = rememberScrollState()
+    val todayFmt = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+
+    var selectedMolecule by remember { mutableStateOf("Lamaline") }
+    var selectedDosage by remember { mutableStateOf("1 gélule") }
+    var painScore by remember { mutableStateOf(5) }
+    var notes by remember { mutableStateOf("") }
+    var customMolecule by remember { mutableStateOf("") }
+    var customDosage by remember { mutableStateOf("") }
+
+    val pendingEvaluations = remember(intakes) {
+        val now = System.currentTimeMillis()
+        val sixHoursAgo = now - 6 * 3600 * 1000L
+        intakes.filter {
+            it.postPainScore == null && it.timestamp >= sixHoursAgo && it.initialPainScore != null
+        }
+    }
+
+    val todayIntakes = remember(intakes) {
+        intakes.filter { android.text.format.DateUtils.isToday(it.timestamp) }
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(scrollState)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Pending Evaluation Card (if any intake is pending post evaluation)
+        if (pendingEvaluations.isNotEmpty()) {
+            val pending = pendingEvaluations.first()
+            var evalScore by remember(pending.id) { mutableStateOf(2) }
+
+            Card(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0)),
+                border = BorderStroke(1.dp, Color(0xFFFFB74D))
             ) {
-                Button(
-                    onClick = onCheckinClick,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp)
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("⏱️", fontSize = 20.sp)
+                        Column {
+                            Text(
+                                text = "Évaluation d'Efficacité (H+1 / H+2)",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFE65100)
+                            )
+                            val timeStr = todayFmt.format(Date(pending.timestamp))
+                            Text(
+                                text = "Prise de ${pending.name} (${pending.dosage}) à $timeStr (EVA initial : ${pending.initialPainScore}/10)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF5D4037)
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "Douleur actuelle (EVA après traitement) : $evalScore / 10",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF3E2723)
+                    )
+
+                    Slider(
+                        value = evalScore.toFloat(),
+                        onValueChange = { evalScore = it.toInt() },
+                        valueRange = 0f..10f,
+                        steps = 9,
+                        colors = SliderDefaults.colors(
+                            thumbColor = Color(0xFFE65100),
+                            activeTrackColor = Color(0xFFE65100)
+                        )
+                    )
+
+                    Button(
+                        onClick = {
+                            medRepo.evaluateIntake(pending.id, evalScore)
+                            onIntakesUpdated()
+                            Toast.makeText(context, "Évaluation enregistrée avec succès", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE65100))
+                    ) {
+                        Text("Valider le soulagement", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        // Quick Intake Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("💊", fontSize = 22.sp)
+                    Text(
+                        text = "Consigner une Prise de Traitement",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF00365B)
+                    )
+                }
+
+                // Pain level before intake
+                val painColor = when {
+                    painScore <= 3 -> Color(0xFF2E7D32)
+                    painScore <= 6 -> Color(0xFFE65100)
+                    else -> Color(0xFFC62828)
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = if (latestCheckin != null) "Modifier Check-in" else "🩺 Check-in Santé",
-                        maxLines = 1
+                        text = "Douleur ressentie (EVA au moment de la prise) :",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = painColor.copy(alpha = 0.15f),
+                        border = BorderStroke(1.dp, painColor)
+                    ) {
+                        Text(
+                            text = "EVA $painScore/10",
+                            color = painColor,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+
+                Slider(
+                    value = painScore.toFloat(),
+                    onValueChange = { painScore = it.toInt() },
+                    valueRange = 0f..10f,
+                    steps = 9,
+                    colors = SliderDefaults.colors(
+                        thumbColor = painColor,
+                        activeTrackColor = painColor
+                    )
+                )
+
+                Text(
+                    text = "Molécule :",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+
+                // Quick molecule selection chips
+                val molecules = listOf(
+                    Triple("Lamaline", "1 gélule", "Antalgique morphinique / paracétamol"),
+                    Triple("Acupan", "20mg (1 ampoule)", "Antalgique central (Néfopam)"),
+                    Triple("Spasfon", "80mg (1 lyoc)", "Antispasmodique"),
+                    Triple("Doliprane", "1000mg", "Paracétamol"),
+                    Triple("Autre...", "", "Autre")
+                )
+
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(molecules) { (name, defaultDosage, category) ->
+                        val isSelected = selectedMolecule == name
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = {
+                                selectedMolecule = name
+                                if (name != "Autre...") {
+                                    selectedDosage = defaultDosage
+                                }
+                            },
+                            label = { Text(name, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) }
+                        )
+                    }
+                }
+
+                if (selectedMolecule == "Autre...") {
+                    OutlinedTextField(
+                        value = customMolecule,
+                        onValueChange = { customMolecule = it },
+                        label = { Text("Nom du médicament") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = customDosage,
+                        onValueChange = { customDosage = it },
+                        label = { Text("Posologie / Dosage (ex: 50mg)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    OutlinedTextField(
+                        value = selectedDosage,
+                        onValueChange = { selectedDosage = it },
+                        label = { Text("Posologie") },
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
 
-                if (isStomaEnabled) {
-                    OutlinedButton(
-                        onClick = onOrderClick,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = MaterialTheme.colorScheme.primary
-                        )
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ShoppingCart,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Commander 📦", style = MaterialTheme.typography.labelMedium)
+                OutlinedTextField(
+                    value = notes,
+                    onValueChange = { notes = it },
+                    label = { Text("Remarque / Contexte (optionnel)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Button(
+                    onClick = {
+                        val name = if (selectedMolecule == "Autre...") customMolecule.trim() else selectedMolecule
+                        val dosage = if (selectedMolecule == "Autre...") customDosage.trim() else selectedDosage
+                        if (name.isNotBlank()) {
+                            val cat = molecules.find { it.first == selectedMolecule }?.third ?: "Antalgique"
+                            medRepo.logIntake(
+                                name = name,
+                                dosage = dosage,
+                                category = cat,
+                                initialPainScore = painScore,
+                                notes = notes.takeIf { it.isNotBlank() }
+                            )
+                            onIntakesUpdated()
+                            Toast.makeText(context, "Prise enregistrée : $name à $painScore/10", Toast.LENGTH_SHORT).show()
+                            notes = ""
+                            if (selectedMolecule == "Autre...") {
+                                customMolecule = ""
+                                customDosage = ""
+                            }
+                        } else {
+                            Toast.makeText(context, "Veuillez renseigner le nom du médicament", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Enregistrer la prise 💊", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        // Today's Intakes
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "Prises du Jour (${todayIntakes.size})",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF263238)
+                )
+
+                if (todayIntakes.isEmpty()) {
+                    Text(
+                        text = "Aucun traitement consigné pour aujourd'hui.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF78909C)
+                    )
+                } else {
+                    todayIntakes.forEach { intake ->
+                        val timeStr = todayFmt.format(Date(intake.timestamp))
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "${intake.name} (${intake.dosage})",
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color(0xFF00365B)
+                                )
+                                Text(
+                                    text = timeStr,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF78909C)
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                val initial = intake.initialPainScore
+                                val post = intake.postPainScore
+                                val relief = intake.reliefPercent
+
+                                if (post != null && relief != null) {
+                                    Text(
+                                        text = "EVA initial $initial/10 → EVA post $post/10",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color(0xFF37474F)
+                                    )
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color(0xFFE8F5E9)
+                                    ) {
+                                        Text(
+                                            text = "Soulagement : $relief%",
+                                            color = Color(0xFF2E7D32),
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                } else {
+                                    Text(
+                                        text = "EVA au moment de la prise : $initial/10",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color(0xFF37474F)
+                                    )
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color(0xFFFFF3E0)
+                                    ) {
+                                        Text(
+                                            text = "⏳ En attente H+2",
+                                            color = Color(0xFFE65100),
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            HorizontalDivider(color = Color(0xFFECEFF1))
+                        }
                     }
                 }
             }
+        }
 
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedButton(
-                    onClick = onConsultationClick,
-                    modifier = Modifier.weight(1.2f),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = Color(0xFF00365B)
-                    )
-                ) {
-                    Text("🩺 Consultation", maxLines = 1, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                }
-
-                OutlinedButton(
-                    onClick = onMedicationClick,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = Color(0xFF2E7D32)
-                    )
-                ) {
-                    Text("💊 Traitements", maxLines = 1, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                }
-            }
+        // Full history button
+        OutlinedButton(
+            onClick = onNavigateToFullLog,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Text("📊 Voir l'historique complet & statistiques d'efficacité", fontWeight = FontWeight.SemiBold)
         }
     }
 }

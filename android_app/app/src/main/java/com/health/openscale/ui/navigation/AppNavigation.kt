@@ -47,9 +47,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -59,13 +57,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalDrawerSheet
-import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
-import androidx.compose.material3.NavigationDrawerItem
-import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailDefaults
 import androidx.compose.material3.NavigationRailItem
@@ -140,7 +134,6 @@ import kotlin.time.Duration.Companion.milliseconds
 fun AppNavigation(sharedViewModel: SharedViewModel) {
     val resources = LocalResources.current
     val navController = rememberNavController()
-    val drawerState = rememberDrawerState(DrawerValue.Closed)
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -193,10 +186,6 @@ fun AppNavigation(sharedViewModel: SharedViewModel) {
     val useNavigationRail = currentWindowAdaptiveInfoV2().windowSizeClass
         .isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND)
 
-    LaunchedEffect(useNavigationRail) {
-        if (useNavigationRail) drawerState.snapTo(DrawerValue.Closed)
-    }
-
     // The main destination whose back stack is showing, also on its sub-pages (e.g. Settings
     // while editing a user), so the drawer/rail can mark it and a second tap can reset it.
     // Only the start destination and at most one other main destination are on the back stack.
@@ -222,10 +211,6 @@ fun AppNavigation(sharedViewModel: SharedViewModel) {
                 restoreState = true
             }
         }
-    }
-
-    BackHandler(enabled = drawerState.isOpen) {
-        scope.launch { drawerState.close() }
     }
 
     LaunchedEffect(snackbarHostState, sharedViewModel, settingsViewModel, bluetoothViewModel) {
@@ -270,167 +255,95 @@ fun AppNavigation(sharedViewModel: SharedViewModel) {
         sharedViewModel = sharedViewModel
     )
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        gesturesEnabled = !useNavigationRail,
-        drawerContent = {
-            ModalDrawerSheet {
-                // Drawer Header: Displays the app logo and name.
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(topEnd = 24.dp)) // Specific rounding for visual style
-                        .background(AppBrandBlue) // Themed background for the header
-                        .padding(8.dp)
-                        .fillMaxWidth()
-                ) {
-                    // BUILD_TYPE is a per-variant compile-time constant, so the IDE flags the
-                    // branches of the other variants as unreachable — they are needed at runtime.
-                    @Suppress("KotlinConstantConditions")
-                    val launcherIconRes = when (BuildConfig.BUILD_TYPE) {
-                        "beta", "oss" -> R.drawable.ic_launcher_beta_foreground
-                        "debug" -> R.drawable.ic_launcher_dev_foreground
-                        else -> R.drawable.ic_launcher_foreground
-                    }
-
-                    Image(
-                        painter = painterResource(id = launcherIconRes),
-                        contentDescription = stringResource(R.string.app_logo_content_description),
-                        modifier = Modifier.size(64.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = stringResource(id = R.string.app_name),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Color.White
-                    )
-                }
-                Spacer(modifier = Modifier.height(8.dp)) // Spacing after the header
-
-                // Drawer Items: Dynamically created for each main route.
-                LazyColumn() {
-                    items(mainRoutes, key = { it }) { route ->
-                        // Add a divider before the "Settings" item for visual separation.
-                        if (route == Routes.SETTINGS) {
-                            HorizontalDivider(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                            )
-                        }
-
-                        val titleText = mainRouteTitle(route)
-
-                        NavigationDrawerItem(
-                            icon = {
-                                Icon(
-                                    imageVector = getIconForRoute(route),
-                                    contentDescription = titleText // Provides accessibility for the icon.
-                                )
-                            },
-                            label = { Text(titleText) },
-                            selected = activeMainRoute == route, // Highlights the item if its section is showing.
-                            onClick = {
-                                navigateToMainRoute(route)
-                                scope.launch { drawerState.close() } // Close the drawer after selection.
-                            },
-                            colors = NavigationDrawerItemDefaults.colors(
-                                selectedIconColor = MaterialTheme.colorScheme.primary,
-                                selectedTextColor = MaterialTheme.colorScheme.primary,
-                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(
-                                    alpha = 0.3f
-                                ),
-                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                unselectedContainerColor = Color.Transparent,
-                            )
-                        )
-                    }
-                }
-            }
+    Row {
+        if (useNavigationRail) {
+            AppNavigationRail(
+                mainRoutes = mainRoutes,
+                activeMainRoute = activeMainRoute,
+                onNavigate = navigateToMainRoute
+            )
         }
-    ) {
-        Row {
-            if (useNavigationRail) {
-                AppNavigationRail(
-                    mainRoutes = mainRoutes,
-                    activeMainRoute = activeMainRoute,
-                    onNavigate = navigateToMainRoute
+        Scaffold(
+            modifier = if (useNavigationRail) {
+                // Not the top: the top bar still needs the status bar inset. The bottom one is
+                // covered by the filler below the NavHost.
+                Modifier.consumeWindowInsets(
+                    NavigationRailDefaults.windowInsets.only(WindowInsetsSides.Start + WindowInsetsSides.Bottom)
                 )
-            }
-            Scaffold(
-                modifier = if (useNavigationRail) {
-                    // Not the top: the top bar still needs the status bar inset. The bottom one is
-                    // covered by the filler below the NavHost.
-                    Modifier.consumeWindowInsets(
-                        NavigationRailDefaults.windowInsets.only(WindowInsetsSides.Start + WindowInsetsSides.Bottom)
-                    )
-                } else {
-                    Modifier
-                },
-                snackbarHost = {
-                    SnackbarHost(hostState = snackbarHostState) { snackbarData ->
-                        // Custom Snackbar appearance defined here.
-                        Snackbar(
-                            modifier = Modifier.padding(8.dp), // Padding around the snackbar.
-                            shape = RoundedCornerShape(8.dp), // Rounded corners for the snackbar.
-                            containerColor = MaterialTheme.colorScheme.inverseSurface,
-                            contentColor = MaterialTheme.colorScheme.inverseOnSurface,
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Filled.Info,
-                                    contentDescription = stringResource(R.string.app_logo_content_description), // Accessibility.
-                                    tint = LocalContentColor.current // Uses the contentColor from Snackbar.
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text(snackbarData.visuals.message)
-                            }
+            } else {
+                Modifier
+            },
+            snackbarHost = {
+                SnackbarHost(hostState = snackbarHostState) { snackbarData ->
+                    // Custom Snackbar appearance defined here.
+                    Snackbar(
+                        modifier = Modifier.padding(8.dp), // Padding around the snackbar.
+                        shape = RoundedCornerShape(8.dp), // Rounded corners for the snackbar.
+                        containerColor = MaterialTheme.colorScheme.inverseSurface,
+                        contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Filled.Info,
+                                contentDescription = stringResource(R.string.app_logo_content_description), // Accessibility.
+                                tint = LocalContentColor.current // Uses the contentColor from Snackbar.
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(snackbarData.visuals.message)
                         }
                     }
-                },
-                topBar = {
-                    TopAppBar(
-                        title = { Text(
-                            text = topBarTitle,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        ) },
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                            titleContentColor = MaterialTheme.colorScheme.onSurface,
-                            navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
-                            actionIconContentColor = MaterialTheme.colorScheme.onSurface,
-                        ),
-                        navigationIcon = {
-                            if (currentRoute in mainRoutes) {
-                                // Show menu icon for main routes to open the drawer.
-                                if (!useNavigationRail) IconButton(onClick = {
-                                    scope.launch { drawerState.open() }
-                                }) {
-                                    Icon(
-                                        Icons.Default.Menu,
-                                        contentDescription = stringResource(R.string.content_desc_open_menu)
-                                    )
-                                }
-                            } else {
-                                // Show back arrow for non-main (detail or sub-page) routes. Route it
-                                // through the back dispatcher (instead of popBackStack directly) so screens
-                                // can intercept it via BackHandler (e.g. unsaved-changes guard); if nothing
-                                // intercepts, the NavHost handles it as a normal back.
-                                val backDispatcher =
-                                    LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
-                                IconButton(onClick = {
-                                    if (backDispatcher != null) backDispatcher.onBackPressed()
-                                    else navController.popBackStack()
-                                }) {
-                                    Icon(
-                                        Icons.AutoMirrored.Filled.ArrowBack,
-                                        contentDescription = stringResource(R.string.content_desc_back)
+                }
+            },
+            topBar = {
+                TopAppBar(
+                    title = {
+                        if (currentRoute == Routes.OVERVIEW) {
+                            Column {
+                                Text(
+                                    text = "openScale Santé",
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                if (selectedUser != null) {
+                                    Text(
+                                        text = "${selectedUser?.name ?: "Patiente"} • ALD 100%",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary
                                     )
                                 }
                             }
-                        },
+                        } else {
+                            Text(
+                                text = topBarTitle,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                        titleContentColor = MaterialTheme.colorScheme.onSurface,
+                        navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+                        actionIconContentColor = MaterialTheme.colorScheme.onSurface,
+                    ),
+                    navigationIcon = {
+                        if (currentRoute !in mainRoutes) {
+                            val backDispatcher =
+                                LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
+                            IconButton(onClick = {
+                                if (backDispatcher != null) backDispatcher.onBackPressed()
+                                else navController.popBackStack()
+                            }) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = stringResource(R.string.content_desc_back)
+                                )
+                            }
+                        }
+                    },
                         actions = {
                             // Display actions defined in SharedViewModel.
                             topBarActions.forEach { action ->
@@ -514,7 +427,6 @@ fun AppNavigation(sharedViewModel: SharedViewModel) {
                 )
             }
         }
-    }
 }
 
 @Composable
