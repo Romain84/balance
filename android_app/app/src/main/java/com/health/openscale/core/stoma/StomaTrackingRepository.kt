@@ -149,6 +149,11 @@ class StomaTrackingRepository @Inject constructor(
         return false
     }
 
+    @Synchronized
+    fun getAllEvents(): List<StomaEvent> {
+        return _events.toList()
+    }
+
     fun isNotificationEnabled(): Boolean {
         return prefs.getBoolean("lockscreen_notification_enabled", true)
     }

@@ -30,5 +30,8 @@ data class MedicationStats(
     val evaluatedIntakes: Int,
     val avgInitialPain: Float,
     val avgPostPain: Float,
-    val avgReliefPercent: Int
+    val avgReliefPercent: Int,
+    val avgDrop: Float = (avgInitialPain - avgPostPain).coerceAtLeast(0f),
+    val failureCount: Int = 0,
+    val failurePercent: Int = 0
 )

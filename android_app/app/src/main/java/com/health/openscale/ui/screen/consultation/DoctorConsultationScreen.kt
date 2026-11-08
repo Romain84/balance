@@ -470,6 +470,18 @@ fun DoctorConsultationScreen(
             item { Spacer(modifier = Modifier.height(40.dp)) }
         }
     }
+
+    val showMedicalReportDialog by sharedViewModel.showMedicalReportDialog.collectAsState()
+    if (showMedicalReportDialog && activeUser != null) {
+        val userCheckins by sharedViewModel.getHealthCheckinsForUser(activeUser!!.id).collectAsState(initial = emptyList())
+        val userMeasurements by sharedViewModel.getMeasurementsForUser(activeUser!!.id).collectAsState(initial = emptyList())
+        com.health.openscale.ui.screen.dialog.MedicalReportDialog(
+            user = activeUser!!,
+            measurements = userMeasurements,
+            checkins = userCheckins,
+            onDismiss = { sharedViewModel.dismissMedicalReportDialog() }
+        )
+    }
 }
 
 @Composable

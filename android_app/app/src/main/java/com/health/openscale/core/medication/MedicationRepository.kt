@@ -184,6 +184,14 @@ class MedicationRepository @Inject constructor(
                 evaluated.mapNotNull { it.reliefPercent }.average().toInt()
             } else 0
 
+            val failures = evaluated.count {
+                val init = it.initialPainScore ?: 0
+                val post = it.postPainScore ?: init
+                (init - post) < 1 || (it.reliefPercent ?: 0) < 20
+            }
+            val failureRate = if (evaluated.isNotEmpty()) ((failures * 100) / evaluated.size) else 0
+            val drop = (avgInitial - avgPost).coerceAtLeast(0f)
+
             result.add(
                 MedicationStats(
                     name = displayName,
@@ -191,7 +199,10 @@ class MedicationRepository @Inject constructor(
                     evaluatedIntakes = evaluated.size,
                     avgInitialPain = avgInitial,
                     avgPostPain = avgPost,
-                    avgReliefPercent = avgRelief
+                    avgReliefPercent = avgRelief,
+                    avgDrop = drop,
+                    failureCount = failures,
+                    failurePercent = failureRate
                 )
             )
         }

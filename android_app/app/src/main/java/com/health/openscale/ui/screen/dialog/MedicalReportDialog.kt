@@ -23,8 +23,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Share
@@ -33,9 +37,11 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -52,6 +58,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.health.openscale.core.data.HealthCheckin
 import com.health.openscale.core.data.User
 import com.health.openscale.core.healthconnect.ClinicalHealthConnectReader
@@ -71,7 +78,18 @@ fun MedicalReportDialog(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var selectedMonths by remember { mutableIntStateOf(3) }
+    var selectedSpecialist by remember { mutableStateOf("Gastro-entérologue") }
+    var motifText by remember { mutableStateOf("Bilan d'observance stomique, évaluation des douleurs en phase lutéale et tolérance digestive.") }
     var isGenerating by remember { mutableStateOf(false) }
+
+    val specialists = listOf(
+        "Gastro-entérologue",
+        "Gynécologue",
+        "Algologue",
+        "Stomathérapeute",
+        "Chirurgien",
+        "Médecin traitant"
+    )
 
     AlertDialog(
         onDismissRequest = { if (!isGenerating) onDismiss() },
@@ -99,7 +117,7 @@ fun MedicalReportDialog(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Pour le praticien & le suivi patient",
+                        text = "Synthèse décisionnelle pluridisciplinaire",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -107,19 +125,23 @@ fun MedicalReportDialog(
             }
         },
         text = {
-            Column(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+            ) {
                 Text(
-                    text = "Choisissez la période à intégrer dans le rapport clinique :",
-                    style = MaterialTheme.typography.bodyMedium
+                    text = "Période clinique :",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold
                 )
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 val periodOptions = listOf(
                     1 to "1 mois (Ajustement récent)",
                     3 to "3 mois (Recommandé consultation)",
-                    6 to "6 mois (Suivi semestriel)",
-                    12 to "1 an (Bilan annuel complet)"
+                    6 to "6 mois (Suivi semestriel)"
                 )
 
                 periodOptions.forEach { (months, label) ->
@@ -127,16 +149,16 @@ fun MedicalReportDialog(
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 4.dp)
+                            .padding(vertical = 3.dp)
                             .clickable(enabled = !isGenerating) { selectedMonths = months },
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(10.dp),
                         color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
                         border = if (isSelected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null
                     ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
@@ -144,7 +166,8 @@ fun MedicalReportDialog(
                                 text = label,
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                                fontSize = 13.sp
                             )
                             if (isSelected) {
                                 Text(
@@ -157,28 +180,44 @@ fun MedicalReportDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-                Card(
-                    shape = RoundedCornerShape(10.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-                    )
-                ) {
-                    Column(modifier = Modifier.padding(10.dp)) {
-                        Text(
-                            text = "Ce document intègre automatiquement :",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "• Stabilité du poids & % eau corporelle\n• Fréquence des débits & incidents de stomie\n• Échelle EVA douleur & cycle ressenti\n• Sommeil & thermométrie basale (Galaxy Watch)\n• Confort digestif & éviction sans gluten",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                Text(
+                    text = "Spécialiste consulté :",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(specialists) { spec ->
+                        FilterChip(
+                            selected = selectedSpecialist == spec,
+                            onClick = { selectedSpecialist = spec },
+                            label = { Text(spec, fontSize = 11.sp) }
                         )
                     }
                 }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Text(
+                    text = "Motif & Questions du jour (imprimé en haut du rapport) :",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                OutlinedTextField(
+                    value = motifText,
+                    onValueChange = { motifText = it },
+                    placeholder = { Text("Ex: Douleurs pelviennes en phase lutéale, tenue support stomie...", fontSize = 12.sp) },
+                    modifier = Modifier.fillMaxWidth(),
+                    maxLines = 3,
+                    textStyle = MaterialTheme.typography.bodySmall
+                )
             }
         },
         confirmButton = {
@@ -207,7 +246,9 @@ fun MedicalReportDialog(
                                 sleepSummary = sleepSummary,
                                 tempSummary = tempSummary,
                                 hrSummary = hrSummary,
-                                stepsSummary = stepsSummary
+                                stepsSummary = stepsSummary,
+                                specialist = selectedSpecialist,
+                                consultationMotif = motifText.trim()
                             )
                             withContext(Dispatchers.Main) {
                                 isGenerating = false
@@ -223,35 +264,35 @@ fun MedicalReportDialog(
                     }
                 },
                 enabled = !isGenerating,
-                shape = RoundedCornerShape(12.dp)
+                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF00365B)
+                )
             ) {
                 if (isGenerating) {
                     CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(16.dp),
                         strokeWidth = 2.dp,
                         color = MaterialTheme.colorScheme.onPrimary
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Génération...")
+                    Text("Génération vectorielle…")
                 } else {
                     Icon(
                         imageVector = Icons.Default.Share,
                         contentDescription = null,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Générer & Partager (PDF)")
+                    Text("Générer Bilan $selectedMonths Mois", fontWeight = FontWeight.Bold)
                 }
             }
         },
         dismissButton = {
-            if (!isGenerating) {
-                OutlinedButton(
-                    onClick = onDismiss,
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text("Annuler")
-                }
+            OutlinedButton(
+                onClick = onDismiss,
+                enabled = !isGenerating
+            ) {
+                Text("Annuler")
             }
         }
     )
