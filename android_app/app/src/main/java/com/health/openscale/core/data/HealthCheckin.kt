@@ -55,6 +55,7 @@ data class HealthCheckin(
     // 2. Stomie & Transit
     val stomaOutput: String? = null, // "NORMAL", "HIGH_LIQUID", "SLOW"
     val stomaIncident: Boolean? = null, // Fuite ou changement imprévu
+    val bristolScale: Int? = null, // Échelle de Bristol (1..7)
 
     // 3. Digestif & Gluten
     val bloatingLevel: String? = null, // "NONE", "MILD", "ENDO_BELLY"

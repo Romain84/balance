@@ -652,23 +652,39 @@ object MedicalReportGenerator {
         // Compute real correlation figures
         val lutealCheckins = checkins.filter { it.cycleSensation == true }
         val otherCheckins = checkins.filter { it.cycleSensation == false }
-        val lutealPain = if (lutealCheckins.isNotEmpty()) lutealCheckins.mapNotNull { it.painScore }.average() else 5.8
-        val otherPain = if (otherCheckins.isNotEmpty()) otherCheckins.mapNotNull { it.painScore }.average() else 2.4
+        val lutealPain = if (lutealCheckins.isNotEmpty()) lutealCheckins.mapNotNull { it.painScore }.average() else 0.0
+        val otherPain = if (otherCheckins.isNotEmpty()) otherCheckins.mapNotNull { it.painScore }.average() else 0.0
 
         val totalEndoBelly = checkins.count { it.bloatingLevel == "ENDO_BELLY" }
         val lutealEndoBelly = lutealCheckins.count { it.bloatingLevel == "ENDO_BELLY" }
-        val endoBellyRatio = if (totalEndoBelly > 0) ((lutealEndoBelly * 100) / totalEndoBelly).coerceIn(60, 90) else 75
+        val endoBellyRatio = if (totalEndoBelly > 0) ((lutealEndoBelly * 100) / totalEndoBelly) else 0
 
         val highLiquidCount = checkins.count { it.stomaOutput == "HIGH_LIQUID" }
+        val deltaTemp = if (tempSummary.highPhaseDetected) "+${String.format(Locale.FRANCE, "%.2f", tempSummary.deltaCelsius)}°C" else "+0,00°C"
 
-        val deltaTemp = if (tempSummary.highPhaseDetected) "+${String.format(Locale.FRANCE, "%.2f", tempSummary.deltaCelsius)}°C" else "+0,34°C"
+        val constats = if (checkins.isEmpty()) {
+            listOf(
+                "1. Données cliniques en cours de collecte : Enregistrez vos check-ins et pesées pour générer les corrélations automatiques.",
+                "2. Suivi de stomie : La tenue du support et le volume d'effluents seront analysés au fil des déclarations réelles.",
+                "3. Bilan Hydrique : Le transit stomique sera croisé avec l'évolution de la masse hydrique corporelle.",
+                "4. Sommeil & Cycle : Les biomarqueurs Galaxy Watch 6 (thermométrie, réveils nocturnes) s'afficheront dès réception."
+            )
+        } else {
+            val lutealPainStr = if (lutealCheckins.isNotEmpty()) "${String.format(Locale.FRANCE, "%.1f", lutealPain)}/10" else "--"
+            val otherPainStr = if (otherCheckins.isNotEmpty()) "${String.format(Locale.FRANCE, "%.1f", otherPain)}/10" else "--"
+            val ovulTxt = if (tempSummary.highPhaseDetected) "Cycles détectés via thermométrie Watch ($deltaTemp)" else "Thermométrie Watch stable"
+            val endoTxt = if (totalEndoBelly > 0) "$totalEndoBelly crises Endo-Belly ($endoBellyRatio% en phase lutéale ressentie)" else "Aucun épisode d'Endo-Belly consigné"
+            val liquidTxt = if (highLiquidCount > 0) "$highLiquidCount épisodes de haut débit / selles liquides consignés." else "Transit stomique régulier sur la période."
+            val avgGlobalPain = checkins.mapNotNull { it.painScore }.average()
+            val painGlobalStr = if (!avgGlobalPain.isNaN()) "${String.format(Locale.FRANCE, "%.1f", avgGlobalPain)}/10" else "--"
 
-        val constats = listOf(
-            "1. Impact Cycle Ovarien (Watch 6) : 3 cycles ovulatoires détectés ($deltaTemp). EVA moyen en phase lutéale : ${String.format(Locale.FRANCE, "%.1f", lutealPain)}/10 contre ${String.format(Locale.FRANCE, "%.1f", otherPain)}/10 le reste du mois. $endoBellyRatio% des Endo-Belly surviennent en phase lutéale.",
-            "2. Impact Endo-Belly sur la Stomie : Lors des journées avec distension abdominale (Endo-Belly), la tenue du support semi-convexe chute de 66h à 38h (majoration précoce du risque de fuite péristomiale).",
-            "3. Bilan Hydrique vs Transit Stomique : Sur ${max(highLiquidCount, 7)} épisodes de selles liquides / haut débit, l'impédancemétrie relève une chute moyenne de -1,4% d'eau corporelle le lendemain, compensée par un apport porté à 2,2 L/j (+ électrolytes).",
-            "4. Retentissement Sommeil & Système Autonome : Les nuits précédant ou accompagnant une crise algique (EVA ≥ 6) présentent une FC de repos majorée (+7 bpm) et une hausse significative des micro-réveils nocturnes (2,4 vs 1,1/nuit)."
-        )
+            listOf(
+                "1. Impact Cycle Ovarien (Watch 6) : $ovulTxt. EVA en phase ressentie : $lutealPainStr (vs $otherPainStr). $endoTxt.",
+                "2. Impact Endo-Belly sur la Stomie : Surveillance de la tenue du support semi-convexe lors des distensions abdominales.",
+                "3. Bilan Hydrique vs Transit Stomique : $liquidTxt Compensation hydrique active requise lors des pertes liquides.",
+                "4. Retentissement Sommeil & Algologie : EVA moyen global : $painGlobalStr. Sommeil nocturne Watch 6 (${sleepSummary.avgDurationMinutes / 60}h${sleepSummary.avgDurationMinutes % 60} en moyenne)."
+            )
+        }
 
         var itemY = y + 16f
         paint.textSize = 7.7f
@@ -740,11 +756,14 @@ object MedicalReportGenerator {
         canvas.drawText("Soulagement", x + colW[0] + colW[1] + colW[2] + colW[3] + 6f, y + 11f, paint)
         canvas.drawText("Taux d'échec (Δ < 1 pt)", x + colW[0] + colW[1] + colW[2] + colW[3] + colW[4] + 6f, y + 11f, paint)
 
-        val displayStats = if (medStats.isNotEmpty()) medStats.take(3) else listOf(
-            MedicationStats("Lamaline (Opioïde faible + paracétamol)", 24, 20, 7.2f, 3.8f, 47, 3.4f, 3, 15),
-            MedicationStats("Spasfon (Antispasmodique)", 18, 16, 5.8f, 5.3f, 9, 0.5f, 14, 88),
-            MedicationStats("Acupan / Néfopam", 8, 8, 8.1f, 4.2f, 48, 3.9f, 1, 12)
-        )
+        val displayStats = medStats.take(3)
+        if (displayStats.isEmpty()) {
+            paint.color = Color.rgb(120, 130, 135)
+            paint.textSize = 7.5f
+            paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.ITALIC)
+            canvas.drawText("Aucune prise médicamenteuse enregistrée sur la période.", x + 8f, y + headerH + 16f, paint)
+            return
+        }
 
         var curY = y + headerH + 2f
         val rowH = 18f
@@ -1099,12 +1118,16 @@ object MedicalReportGenerator {
 
             paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
             canvas.drawText("$wStr $watStr", x + colW[0] + 4f, curY + 12.5f, paint)
-            canvas.drawText("2,4 L", x + colW[0] + colW[1] + 4f, curY + 12.5f, paint)
+
+            val dayWaterMl = allStomaEvents.filter { it.type == StomaEventType.WATER && shortDateFormat.format(Date(it.timestamp)) == dStr }.sumOf { it.amountMl }
+            val waterStr = if (dayWaterMl > 0) "${String.format(Locale.FRANCE, "%.1f", dayWaterMl / 1000f)} L" else "--"
+            canvas.drawText(waterStr, x + colW[0] + colW[1] + 4f, curY + 12.5f, paint)
 
             // Transit & Stomie
             val stomaTxt = when {
                 c.stomaIncident == true -> "⚠️ Fuite support"
                 c.stomaOutput == "HIGH_LIQUID" -> "⚠️ Haut débit"
+                c.bristolScale != null -> "Bristol ${c.bristolScale}"
                 else -> "Moulé / 1 poche"
             }
             paint.color = if (isStomaAlert) Color.rgb(198, 40, 40) else Color.rgb(33, 43, 48)
@@ -1133,8 +1156,18 @@ object MedicalReportGenerator {
             }
             canvas.drawText(eventDesc, x + colW[0] + colW[1] + colW[2] + colW[3] + colW[4] + colW[5] + 4f, curY + 12.5f, paint)
 
-            // Treatment taken & relief
-            val treatDesc = if (isSevere) "Lamaline (8 ➔ 4, soulagé 50%)" else "Spasfon 80mg (soulagé 10%)"
+            // Treatment taken & relief from real data
+            val dayIntakes = allMedIntakes.filter { shortDateFormat.format(Date(it.timestamp)) == dStr }
+            val treatDesc = if (dayIntakes.isNotEmpty()) {
+                val med = dayIntakes.first()
+                if (med.postPainScore != null) {
+                    "${med.name} (${med.initialPainScore ?: "?"} ➔ ${med.postPainScore}, ${med.reliefPercent ?: 0}%)"
+                } else {
+                    "${med.name} ${med.dosage}".trim()
+                }
+            } else {
+                "-"
+            }
             paint.color = Color.rgb(0, 105, 92)
             canvas.drawText(treatDesc, x + colW[0] + colW[1] + colW[2] + colW[3] + colW[4] + colW[5] + colW[6] + 4f, curY + 12.5f, paint)
 

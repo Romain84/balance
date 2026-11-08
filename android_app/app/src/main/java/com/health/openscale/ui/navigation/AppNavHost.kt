@@ -75,6 +75,8 @@ import com.health.openscale.ui.screen.settings.SettingsViewModel
 import com.health.openscale.ui.screen.settings.UserDetailScreen
 import com.health.openscale.ui.screen.settings.UserSettingsScreen
 import com.health.openscale.ui.screen.stoma.StomaOrderScreen
+import com.health.openscale.ui.screen.stoma.StomaTabScreen
+import com.health.openscale.ui.screen.drinks.DrinksScreen
 import com.health.openscale.ui.screen.consultation.DoctorConsultationScreen
 import com.health.openscale.ui.screen.medication.MedicationLogScreen
 import com.health.openscale.core.data.AggregationLevel
@@ -138,10 +140,9 @@ fun AppNavHost(
                 )
             }
             composable(Routes.TABLE) {
-                TableScreen(
+                StomaTabScreen(
                     navController = navController,
-                    sharedViewModel = sharedViewModel,
-                    bluetoothViewModel = bluetoothViewModel
+                    sharedViewModel = sharedViewModel
                 )
             }
             composable(
@@ -187,10 +188,15 @@ fun AppNavHost(
                 )
             }
             composable(Routes.INSIGHTS) {
-                InsightsScreen(
+                MedicationLogScreen(
                     navController = navController,
-                    sharedViewModel = sharedViewModel,
-                    bluetoothViewModel = bluetoothViewModel,
+                    sharedViewModel = sharedViewModel
+                )
+            }
+            composable(Routes.DRINKS) {
+                DrinksScreen(
+                    navController = navController,
+                    sharedViewModel = sharedViewModel
                 )
             }
             composable(Routes.SETTINGS) {

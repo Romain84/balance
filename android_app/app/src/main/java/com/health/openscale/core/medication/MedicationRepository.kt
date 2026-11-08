@@ -103,13 +103,22 @@ class MedicationRepository @Inject constructor(
         dosage: String = "",
         category: String = "Antalgique",
         initialPainScore: Int? = null,
+        postPainScore: Int? = null,
         notes: String? = null
     ): MedicationIntake {
+        val relief = if (initialPainScore != null && initialPainScore > 0 && postPainScore != null) {
+            val delta = (initialPainScore - postPainScore).coerceAtLeast(0)
+            ((delta.toDouble() / initialPainScore) * 100).toInt().coerceIn(0, 100)
+        } else if (postPainScore == 0) 100 else null
+
         val intake = MedicationIntake(
             name = name,
             dosage = dosage,
             category = category,
             initialPainScore = initialPainScore,
+            postPainScore = postPainScore,
+            evaluationTimestamp = if (postPainScore != null) System.currentTimeMillis() else null,
+            reliefPercent = relief,
             notes = notes
         )
         val current = _intakes.value.toMutableList()

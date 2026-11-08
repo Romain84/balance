@@ -21,11 +21,16 @@ import androidx.annotation.StringRes
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material.icons.filled.Analytics
+import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.MedicalServices
+import androidx.compose.material.icons.filled.Medication
+import androidx.compose.material.icons.filled.MonitorWeight
 import androidx.compose.material.icons.filled.QuestionMark
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TableRows
+import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.health.openscale.R
 import com.health.openscale.core.data.AggregationLevel
@@ -38,6 +43,7 @@ object Routes {
     const val TABLE = "table"
     const val STATISTICS = "statistics"
     const val INSIGHTS = "insights"
+    const val DRINKS = "drinks"
     const val SETTINGS = "settings"
 
     const val MEASUREMENT_DETAIL = "measurementDetail" // Not a main navigation item, but a route
@@ -110,17 +116,19 @@ object Routes {
         route.startsWith(TABLE) -> R.string.route_title_table
         route.startsWith(STATISTICS) -> R.string.route_title_statistics
         route.startsWith(INSIGHTS) -> R.string.route_title_insights
+        route.startsWith(DRINKS) -> R.string.route_title_drinks
         route.startsWith(SETTINGS) -> R.string.route_title_settings
         else -> NO_TITLE_RESOURCE_ID // No specific title for other routes via this function
     }
 
     fun getIconForRoute(route: String): ImageVector {
         return when (route) {
-            OVERVIEW -> Icons.Filled.Home
-            GRAPH -> Icons.AutoMirrored.Filled.ShowChart
-            TABLE -> Icons.Filled.TableRows
+            OVERVIEW -> Icons.Filled.Dashboard
+            GRAPH -> Icons.Filled.MonitorWeight
+            TABLE -> Icons.Filled.MedicalServices
+            INSIGHTS -> Icons.Filled.Medication
+            DRINKS -> Icons.Filled.WaterDrop
             STATISTICS -> Icons.Filled.Analytics
-            INSIGHTS -> Icons.Filled.Lightbulb
             SETTINGS -> Icons.Filled.Settings
             else -> Icons.Filled.QuestionMark // Default icon for routes not explicitly handled
         }

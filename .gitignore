@@ -1,4 +1,7 @@
-# Built application files
+# Local test backups and screenshots
+backup_device_data/
+*.png
+
 *.apk
 *.ap_
 *.abb

@@ -39,6 +39,9 @@ class StomaTrackingRepository @Inject constructor(
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
     private val _events = mutableListOf<StomaEvent>()
+    private val _eventsFlow = MutableStateFlow<List<StomaEvent>>(emptyList())
+    val eventsFlow: StateFlow<List<StomaEvent>> = _eventsFlow.asStateFlow()
+
     private val _todaySummary = MutableStateFlow(computeSummaryForDate(System.currentTimeMillis()))
     val todaySummary: StateFlow<DailyStomaSummary> = _todaySummary.asStateFlow()
 
@@ -76,6 +79,7 @@ class StomaTrackingRepository @Inject constructor(
         } catch (e: Exception) {
             e.printStackTrace()
         }
+        _eventsFlow.value = _events.toList()
     }
 
     @Synchronized
@@ -100,6 +104,7 @@ class StomaTrackingRepository @Inject constructor(
         } catch (e: Exception) {
             e.printStackTrace()
         }
+        _eventsFlow.value = _events.toList()
     }
 
     @Synchronized
@@ -136,6 +141,16 @@ class StomaTrackingRepository @Inject constructor(
         )
         saveEvents()
         refreshSummary()
+    }
+
+    @Synchronized
+    fun deleteEvent(id: String): Boolean {
+        val removed = _events.removeAll { it.id == id }
+        if (removed) {
+            saveEvents()
+            refreshSummary()
+        }
+        return removed
     }
 
     @Synchronized

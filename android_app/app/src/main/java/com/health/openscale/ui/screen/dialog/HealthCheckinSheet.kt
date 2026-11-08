@@ -99,6 +99,7 @@ fun HealthCheckinSheet(
     // Stomie
     var stomaOutput by remember { mutableStateOf(existingCheckin?.stomaOutput ?: "NORMAL") }
     var stomaIncident by remember { mutableStateOf(existingCheckin?.stomaIncident ?: false) }
+    var bristolScale by remember { mutableStateOf<Int?>(existingCheckin?.bristolScale) }
 
     // Gluten & Digestif
     var bloatingLevel by remember { mutableStateOf(existingCheckin?.bloatingLevel ?: "NONE") }
@@ -218,15 +219,15 @@ fun HealthCheckinSheet(
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // Supposition cycle menstruel / hormonal ressenti (Oui / Non)
+                    // Cycle menstruel ressenti (sensation hormonale) : Oui / Non
                     Column {
                         Text(
-                            text = "Supposition phase de cycle menstruel / hormonal ressenti :",
+                            text = "Cycle menstruel ressenti (sensation hormonale) :",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
-                            text = "Fluctuations hormonales ou sensations cycliques ressenties",
+                            text = "Fluctuations hormonales ou sensations ovariennes ressenties (post-hystérectomie)",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -259,7 +260,39 @@ fun HealthCheckinSheet(
                         ChoicePill("Ralenti", stomaOutput == "SLOW") { stomaOutput = "SLOW" }
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text("Apparence des selles (Échelle de Bristol) :", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    val bristolOptions = listOf(
+                        1 to "Type 1 : Noisettes dures",
+                        2 to "Type 2 : Saucisse grumeleuse",
+                        3 to "Type 3 : Saucisse craquelée",
+                        4 to "Type 4 : Saucisse lisse (Idéal)",
+                        5 to "Type 5 : Morceaux mous",
+                        6 to "Type 6 : Pâteux / Duveteux",
+                        7 to "Type 7 : Entièrement liquide 🚨"
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        bristolOptions.forEach { (typeNum, label) ->
+                            val selected = bristolScale == typeNum
+                            val isAlert = selected && (typeNum == 7 || typeNum == 1)
+                            ChoicePill(
+                                label = label,
+                                selected = selected,
+                                isAlert = isAlert,
+                                onClick = {
+                                    bristolScale = if (selected) null else typeNum
+                                    if (typeNum == 7) stomaOutput = "HIGH_LIQUID"
+                                }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     Text("Appareillage & Poche :", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                     Spacer(modifier = Modifier.height(6.dp))
@@ -335,6 +368,7 @@ fun HealthCheckinSheet(
                             cycleSensation = if (isEndoEnabled) cycleSensation else null,
                             stomaOutput = if (isStomaEnabled) stomaOutput else null,
                             stomaIncident = if (isStomaEnabled) stomaIncident else null,
+                            bristolScale = if (isStomaEnabled) bristolScale else null,
                             bloatingLevel = if (isGlutenEnabled) bloatingLevel else null,
                             glutenExposure = if (isGlutenEnabled) glutenExposure else null,
                             notes = notes.trim().ifEmpty { null }

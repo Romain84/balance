@@ -88,6 +88,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -112,6 +113,11 @@ import com.health.openscale.ui.screen.dialog.BluetoothUserInteractionDialog
 import com.health.openscale.ui.screen.settings.BluetoothViewModel
 import com.health.openscale.ui.screen.settings.SettingsViewModel
 import com.health.openscale.ui.theme.AppBrandBlue
+import com.health.openscale.core.stoma.StomaTrackingRepository
+import com.health.openscale.core.stoma.StomaNotificationManager
+import com.health.openscale.core.medication.MedicationRepository
+import com.health.openscale.ui.screen.dialog.UniversalAddSheet
+import com.health.openscale.ui.screen.medication.AddMedicationIntakeDialog
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -143,6 +149,12 @@ fun AppNavigation(sharedViewModel: SharedViewModel) {
 
     val bluetoothViewModel: BluetoothViewModel = hiltViewModel()
 
+    val context = LocalContext.current
+    val stomaRepo = remember { StomaTrackingRepository(context) }
+    val medRepo = remember { MedicationRepository(context) }
+    var showUniversalAddSheet by remember { mutableStateOf(false) }
+    var showMedicationAddDialog by remember { mutableStateOf(false) }
+
     // Observe the current navigation route
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route
@@ -152,8 +164,8 @@ fun AppNavigation(sharedViewModel: SharedViewModel) {
         Routes.OVERVIEW,
         Routes.GRAPH,
         Routes.TABLE,
-        Routes.STATISTICS,
         Routes.INSIGHTS,
+        Routes.DRINKS,
         Routes.SETTINGS
     )
 
@@ -163,7 +175,7 @@ fun AppNavigation(sharedViewModel: SharedViewModel) {
         Routes.GRAPH,
         Routes.TABLE,
         Routes.INSIGHTS,
-        Routes.SETTINGS
+        Routes.DRINKS
     )
 
     // Collect UI states from SharedViewModel
@@ -308,7 +320,7 @@ fun AppNavigation(sharedViewModel: SharedViewModel) {
                                 )
                                 if (selectedUser != null) {
                                     Text(
-                                        text = "${selectedUser?.name ?: "Patiente"} • ALD 100%",
+                                        text = selectedUser?.name ?: "Patiente",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.primary
                                     )
@@ -376,6 +388,16 @@ fun AppNavigation(sharedViewModel: SharedViewModel) {
                                     }
                                 )
                             }
+
+                            // Settings icon in top right
+                            if (!isInContextualSelectionMode && currentRoute != Routes.SETTINGS) {
+                                IconButton(onClick = { navController.navigate(Routes.SETTINGS) }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Settings,
+                                        contentDescription = stringResource(R.string.route_title_settings)
+                                    )
+                                }
+                            }
                         }
                     )
                 },
@@ -389,30 +411,16 @@ fun AppNavigation(sharedViewModel: SharedViewModel) {
                     }
                 },
                 floatingActionButton = {
-                    if (!isInContextualSelectionMode && (currentRoute == Routes.OVERVIEW || currentRoute == Routes.TABLE)) {
+                    if (!isInContextualSelectionMode && currentRoute in bottomBarRoutes) {
                         FloatingActionButton(
-                            onClick = {
-                                if (selectedUser != null && selectedUser?.id != 0) {
-                                    navController.navigate(
-                                        Routes.measurementDetail(
-                                            measurementId = null,
-                                            userId = selectedUser?.id
-                                        )
-                                    )
-                                } else {
-                                    sharedViewModel.showSnackbar(
-                                        message = resources.getString(R.string.toast_select_user_first),
-                                        duration = SnackbarDuration.Short
-                                    )
-                                }
-                            },
-                            containerColor = MaterialTheme.colorScheme.primaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            onClick = { showUniversalAddSheet = true },
+                            containerColor = Color(0xFF00365B),
+                            contentColor = Color.White,
                             shape = RoundedCornerShape(16.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Add,
-                                contentDescription = stringResource(R.string.title_new_measurement)
+                                contentDescription = "Ajouter un soin, boisson ou traitement"
                             )
                         }
                     }
@@ -427,6 +435,87 @@ fun AppNavigation(sharedViewModel: SharedViewModel) {
                 )
             }
         }
+
+    // Modal Sheet: Universal Action (+)
+    if (showUniversalAddSheet) {
+        UniversalAddSheet(
+            onDismiss = { showUniversalAddSheet = false },
+            onLogPouchChange = {
+                stomaRepo.logPouchChange()
+                if (stomaRepo.isNotificationEnabled()) {
+                    StomaNotificationManager.showTrackingNotification(context, stomaRepo.getTodaySummary())
+                }
+                scope.launch {
+                    snackbarHostState.showSnackbar("Changement de poche enregistré ✓")
+                }
+            },
+            onLogSupportChange = {
+                stomaRepo.logSupportChange()
+                if (stomaRepo.isNotificationEnabled()) {
+                    StomaNotificationManager.showTrackingNotification(context, stomaRepo.getTodaySummary())
+                }
+                scope.launch {
+                    snackbarHostState.showSnackbar("Changement complet du support enregistré ✓")
+                }
+            },
+            onAddWater250 = {
+                stomaRepo.addWater(250)
+                if (stomaRepo.isNotificationEnabled()) {
+                    StomaNotificationManager.showTrackingNotification(context, stomaRepo.getTodaySummary())
+                }
+                scope.launch {
+                    snackbarHostState.showSnackbar("+ 250 ml d'eau enregistré 💧")
+                }
+            },
+            onAddWater500 = {
+                stomaRepo.addWater(500)
+                if (stomaRepo.isNotificationEnabled()) {
+                    StomaNotificationManager.showTrackingNotification(context, stomaRepo.getTodaySummary())
+                }
+                scope.launch {
+                    snackbarHostState.showSnackbar("+ 500 ml d'eau enregistré 🥤")
+                }
+            },
+            onOpenMedicationDialog = {
+                showMedicationAddDialog = true
+            },
+            onNewMeasurement = {
+                if (selectedUser != null && selectedUser?.id != 0) {
+                    navController.navigate(
+                        Routes.measurementDetail(
+                            measurementId = null,
+                            userId = selectedUser?.id
+                        )
+                    )
+                } else {
+                    scope.launch {
+                        snackbarHostState.showSnackbar("Veuillez sélectionner un profil d'abord")
+                    }
+                }
+            }
+        )
+    }
+
+    // Dialog: Add Medication Intake
+    if (showMedicationAddDialog) {
+        AddMedicationIntakeDialog(
+            onDismiss = { showMedicationAddDialog = false },
+            onConfirm = { name, dosage, category, pain, postPain, notes ->
+                medRepo.logIntake(
+                    name = name,
+                    dosage = dosage,
+                    category = category,
+                    initialPainScore = pain,
+                    postPainScore = postPain,
+                    notes = notes
+                )
+                scope.launch {
+                    snackbarHostState.showSnackbar("Prise de $name enregistrée 💊")
+                }
+                showMedicationAddDialog = false
+            }
+        )
+    }
 }
 
 @Composable

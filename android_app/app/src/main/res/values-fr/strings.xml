@@ -26,10 +26,11 @@
     <string name="no_data_available">Pas de données disponibles.</string>
     <string name="no_measurements_found">Aucune mesure trouvée.</string>
     <string name="no_entries_found">Pas d\'entrées disponibles.</string>
-    <string name="route_title_overview">Vue d\'ensemble</string>
-    <string name="route_title_graph">Graphiques</string>
-    <string name="route_title_table">Tableau</string>
+    <string name="route_title_overview">Général</string>
+    <string name="route_title_graph">Poids</string>
+    <string name="route_title_table">Stomie</string>
     <string name="route_title_statistics">Statistiques</string>
+    <string name="route_title_drinks">Boissons</string>
     <string name="route_title_settings">Paramètres</string>
     <string name="health_connect_title">Health Connect</string>
     <string name="health_connect_enable">Synchroniser les mesures</string>
@@ -879,7 +880,7 @@
     <string name="sync_app_open_action">Ouvrir</string>
     <string name="clear_button">Effacer</string>
     <string name="saved">Enregistré</string>
-    <string name="route_title_insights">Tendances</string>
+    <string name="route_title_insights">Médicaments</string>
     <string name="route_title_table_drilldown">Détails</string>
     <string name="calendar_week_abbrev">Sem.</string>
     <string name="user_added_successfully">Profil %1$s ajouté avec succès.</string>

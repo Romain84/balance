@@ -26,13 +26,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -53,6 +58,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -120,12 +126,10 @@ fun GraphScreen(
         screenContextName = SettingsPreferenceKeys.GRAPH_SCREEN_CONTEXT,
     )
 
-    // Use Unit as key — timeFilterAction is recreated on every recomposition so using
-    // it as a key would re-fire this effect every time. The title and actions are
-    // stable after the first composition.
+    // Use Unit as key — title and actions are stable after the first composition.
     LaunchedEffect(Unit) {
         sharedViewModel.setTopBarTitle(resources.getString(R.string.route_title_graph))
-        sharedViewModel.setTopBarActions(listOfNotNull(bluetoothAction, addMeasurementAction, timeFilterAction))
+        sharedViewModel.setTopBarActions(listOfNotNull(bluetoothAction, addMeasurementAction))
     }
 
     // ── Delete dialog ─────────────────────────────────────────────────────────
@@ -265,35 +269,145 @@ fun GraphScreen(
                             Text(stringResource(R.string.no_data_available))
                         }
                     } else {
-                        // MeasurementChart internally calls screenFlow(GRAPH_CONTEXT, useSmoothing=true)
-                        // which hits the ViewModel cache — no second pipeline is created.
-                        MeasurementChart(
-                            modifier          = Modifier.fillMaxSize(),
-                            sharedViewModel   = sharedViewModel,
-                            screenContextName = SettingsPreferenceKeys.GRAPH_SCREEN_CONTEXT,
-                            showFilterControls = true,
-                            showPeriodChart   = true,
-                            showFilterTitle   = true,
-                            onPointSelected   = { selectedTs ->
-                                val result = sharedViewModel.findClosestMeasurement(
-                                    selectedTs,
-                                    allMeasurementsWithValues,
-                                ) ?: return@MeasurementChart
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            // 1. Chart
+                            MeasurementChart(
+                                modifier          = Modifier.fillMaxWidth().height(260.dp),
+                                sharedViewModel   = sharedViewModel,
+                                screenContextName = SettingsPreferenceKeys.GRAPH_SCREEN_CONTEXT,
+                                showFilterControls = true,
+                                showPeriodChart   = true,
+                                showFilterTitle   = true,
+                                onPointSelected   = { selectedTs ->
+                                    val result = sharedViewModel.findClosestMeasurement(
+                                        selectedTs,
+                                        allMeasurementsWithValues,
+                                    ) ?: return@MeasurementChart
 
-                                val (_, mwv) = result
-                                val id  = mwv.measurement.id
-                                val now = System.currentTimeMillis()
+                                    val (_, mwv) = result
+                                    val id  = mwv.measurement.id
+                                    val now = System.currentTimeMillis()
 
-                                if (lastTapId == id && (now - lastTapAt) <= doubleTapWindowMs) {
-                                    sheetMeasurementId = id
-                                    lastTapId = null
-                                    lastTapAt = 0L
-                                } else {
-                                    lastTapId = id
-                                    lastTapAt = now
+                                    if (lastTapId == id && (now - lastTapAt) <= doubleTapWindowMs) {
+                                        sheetMeasurementId = id
+                                        lastTapId = null
+                                        lastTapAt = 0L
+                                    } else {
+                                        lastTapId = id
+                                        lastTapAt = now
+                                    }
+                                },
+                            )
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            // 2. Full History List of All Weigh-ins
+                            LazyColumn(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                item {
+                                    Text(
+                                        text = "HISTORIQUE COMPLET DES PESÉES (${allMeasurementsWithValues.size})",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = Color(0xFF00365B),
+                                        modifier = Modifier.padding(vertical = 4.dp)
+                                    )
                                 }
-                            },
-                        )
+
+                                items(allMeasurementsWithValues, key = { it.measurement.id }) { mwv ->
+                                    val weightVal = mwv.values.find { it.type.key == MeasurementType.WEIGHT }?.value?.floatValue
+                                    val waterVal = mwv.values.find { it.type.key == MeasurementType.WATER }?.value?.floatValue
+                                    val fatVal = mwv.values.find { it.type.key == MeasurementType.BODY_FAT }?.value?.floatValue
+
+                                    val dateStr = remember(mwv.measurement.timestamp) {
+                                        DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT, Locale.getDefault())
+                                            .format(Date(mwv.measurement.timestamp))
+                                    }
+
+                                    Card(
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEAEAEA)),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { sheetMeasurementId = mwv.measurement.id }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Text(
+                                                        text = "${String.format(Locale.FRANCE, "%.1f", weightVal ?: 0f)} kg",
+                                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                                        color = Color(0xFF00365B)
+                                                    )
+                                                    if (waterVal != null) {
+                                                        Spacer(modifier = Modifier.width(8.dp))
+                                                        Surface(
+                                                            shape = RoundedCornerShape(6.dp),
+                                                            color = Color(0xFFE0F7FA)
+                                                        ) {
+                                                            Text(
+                                                                text = "💧 ${String.format(Locale.FRANCE, "%.1f", waterVal)}% eau",
+                                                                color = Color(0xFF00695C),
+                                                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Text(
+                                                    text = dateStr,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = Color.Gray
+                                                )
+                                                if (fatVal != null) {
+                                                    Text(
+                                                        text = "Masse grasse : ${String.format(Locale.FRANCE, "%.1f", fatVal)}%",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = Color(0xFF78909C)
+                                                    )
+                                                }
+                                            }
+
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                IconButton(
+                                                    onClick = {
+                                                        selectedUserId?.let { uid ->
+                                                            navController.navigate(Routes.measurementDetail(mwv.measurement.id, uid))
+                                                        }
+                                                    },
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Edit, contentDescription = "Modifier", tint = Color.Gray, modifier = Modifier.size(16.dp))
+                                                }
+                                                IconButton(
+                                                    onClick = {
+                                                        sheetMeasurementId = mwv.measurement.id
+                                                        showDeleteDialog = true
+                                                    },
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Delete, contentDescription = "Supprimer", tint = Color.LightGray, modifier = Modifier.size(16.dp))
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                item { Spacer(modifier = Modifier.height(60.dp)) }
+                            }
+                        }
                     }
                 }
             }

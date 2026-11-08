@@ -436,7 +436,6 @@ fun OverviewScreen(
                 sharedViewModel.setTopBarTitle(resources.getString(R.string.route_title_overview))
                 val actions = mutableListOf<TopBarAction>()
                 actions.add(bluetoothAction)
-                timeFilterAction?.let { actions.add(it) }
                 sharedViewModel.setTopBarActions(actions)
             }
         }
@@ -477,13 +476,26 @@ fun OverviewScreen(
                 when (val state = overviewState) {
                     is SharedViewModel.UiState.Success -> {
 
-                        // Scroll to top when the newest item changes
+                        // Scroll to top when the newest item changes and prompt check-in
                         val topId = aggregatedItems.firstOrNull()
                             ?.enriched?.measurementWithValues?.measurement?.id
+                        var lastSeenTopMeasurementId by rememberSaveable { mutableStateOf<Int?>(null) }
+
                         LaunchedEffect(topId, aggregatedItems.size) {
                             if (topId != null && !listState.isScrollInProgress) {
                                 delay(60.milliseconds)
                                 listState.smartScrollTo(0)
+                            }
+                            if (topId != null) {
+                                if (lastSeenTopMeasurementId != null && topId != lastSeenTopMeasurementId) {
+                                    // New weigh-in detected! Prompt clinical check-in
+                                    sharedViewModel.openHealthCheckinSheet(
+                                        userId = selectedUserId,
+                                        measurementId = topId,
+                                        existingCheckin = null
+                                    )
+                                }
+                                lastSeenTopMeasurementId = topId
                             }
                         }
 

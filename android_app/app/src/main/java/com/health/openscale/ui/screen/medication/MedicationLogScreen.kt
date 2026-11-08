@@ -44,7 +44,11 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -323,8 +327,10 @@ fun MedicationLogScreen(
                     Card(
                         shape = RoundedCornerShape(12.dp),
                         colors = CardDefaults.cardColors(containerColor = Color.White),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEAEAEA)),
-                        modifier = Modifier.fillMaxWidth()
+                        border = androidx.compose.foundation.BorderStroke(1.dp, if (item.postPainScore == null && item.initialPainScore != null) Color(0xFFFFCC80) else Color(0xFFEAEAEA)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { intakeToEvaluate = item }
                     ) {
                         Row(
                             modifier = Modifier
@@ -369,9 +375,9 @@ fun MedicationLogScreen(
 
                                 val painSummary = if (item.initialPainScore != null) {
                                     if (item.postPainScore != null) {
-                                        "EVA : ${item.initialPainScore}/10 ➔ ${item.postPainScore}/10 (${item.reliefPercent ?: 0}% soulagement)"
+                                        "EVA : ${item.initialPainScore}/10 ➔ ${item.postPainScore}/10 (${item.reliefPercent ?: 0}% soulagement) ✏️"
                                     } else {
-                                        "EVA initiale : ${item.initialPainScore}/10 (Non évalué)"
+                                        "EVA initiale : ${item.initialPainScore}/10 • ⏳ Cliquer pour renseigner à H+1"
                                     }
                                 } else {
                                     "Prise de confort / traitement de fond"
@@ -380,7 +386,8 @@ fun MedicationLogScreen(
                                 Text(
                                     text = painSummary,
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = if (item.postPainScore != null) Color(0xFF1B5E20) else Color(0xFFE65100)
+                                    color = if (item.postPainScore != null) Color(0xFF1B5E20) else Color(0xFFE65100),
+                                    fontWeight = if (item.postPainScore == null) FontWeight.SemiBold else FontWeight.Normal
                                 )
 
                                 if (!item.notes.isNullOrBlank()) {
@@ -428,12 +435,13 @@ fun MedicationLogScreen(
     if (showAddDialog) {
         AddMedicationIntakeDialog(
             onDismiss = { showAddDialog = false },
-            onConfirm = { name, dosage, category, pain, notes ->
+            onConfirm = { name, dosage, category, pain, postPain, notes ->
                 repository.logIntake(
                     name = name,
                     dosage = dosage,
                     category = category,
                     initialPainScore = pain,
+                    postPainScore = postPain,
                     notes = notes
                 )
                 Toast.makeText(context, "Prise de $name enregistrée", Toast.LENGTH_SHORT).show()
@@ -479,92 +487,65 @@ fun MedicationLogScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AddMedicationIntakeDialog(
+fun AddMedicationIntakeDialog(
     onDismiss: () -> Unit,
-    onConfirm: (name: String, dosage: String, category: String, painScore: Int?, notes: String?) -> Unit
+    onConfirm: (name: String, dosage: String, category: String, painScore: Int?, postPainScore: Int?, notes: String?) -> Unit
 ) {
-    val commonMeds = listOf(
-        "Spasfon" to "80 mg",
-        "Doliprane" to "1000 mg",
-        "Lamaline" to "1 gélule",
-        "Acupan" to "20 mg",
-        "Électrolytes stomie" to "1 sachet",
-        "Probiotiques" to "1 gélule"
+    val medicationOptions = listOf(
+        "Lamaline",
+        "Acupan",
+        "Spasfon",
+        "Doliprane",
+        "Autre"
     )
 
-    var selectedName by remember { mutableStateOf("Spasfon") }
+    var medExpanded by remember { mutableStateOf(false) }
+    var selectedName by remember { mutableStateOf("Lamaline") }
     var customName by remember { mutableStateOf("") }
-    var dosage by remember { mutableStateOf("80 mg") }
-    var painScore by remember { mutableFloatStateOf(6f) }
+
+    val dosageOptions = remember(selectedName) {
+        when (selectedName) {
+            "Lamaline" -> listOf("1 gélule", "2 gélules", "1 suppositoire", "Autre dosage...")
+            "Acupan" -> listOf("20 mg (1 ampoule)", "10 mg (1/2 ampoule)", "Autre dosage...")
+            "Spasfon" -> listOf("80 mg (2 comprimés)", "40 mg (1 comprimé)", "1 ampoule (buvable / injectable)", "Autre dosage...")
+            "Doliprane" -> listOf("1000 mg", "500 mg", "Autre dosage...")
+            else -> listOf("1 dose", "2 doses", "Autre dosage...")
+        }
+    }
+
+    var dosageExpanded by remember { mutableStateOf(false) }
+    var selectedDosage by remember { mutableStateOf(dosageOptions.first()) }
+    var customDosage by remember { mutableStateOf("") }
+
+    var initialPainScore by remember { mutableFloatStateOf(6f) }
+    var evaluateNow by remember { mutableStateOf(false) }
+    var postPainScore by remember { mutableFloatStateOf(3f) }
     var notes by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text("Nouvelle prise de traitement", fontWeight = FontWeight.Bold)
+            Text("Nouvelle prise de médicament", fontWeight = FontWeight.Bold)
         },
         text = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text("Médicaments fréquents :", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(commonMeds) { (medName, medDosage) ->
-                        FilterChip(
-                            selected = selectedName == medName,
-                            onClick = {
-                                selectedName = medName
-                                dosage = medDosage
-                            },
-                            label = { Text(medName, fontSize = 12.sp) }
-                        )
-                    }
-                    item {
-                        FilterChip(
-                            selected = selectedName == "Autre",
-                            onClick = {
-                                selectedName = "Autre"
-                                dosage = ""
-                            },
-                            label = { Text("Autre…", fontSize = 12.sp) }
-                        )
-                    }
-                }
-
-                if (selectedName == "Autre") {
-                    OutlinedTextField(
-                        value = customName,
-                        onValueChange = { customName = it },
-                        label = { Text("Nom du médicament *") },
-                        placeholder = { Text("Ex: Tramadol, Célestène…") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-
-                OutlinedTextField(
-                    value = dosage,
-                    onValueChange = { dosage = it },
-                    label = { Text("Dosage / Forme") },
-                    placeholder = { Text("Ex: 1000 mg, 1 ampoule…") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(4.dp))
+                // 1. Douleur avant prise
                 Text(
-                    text = "Intensité de la douleur actuelle (EVA : ${painScore.toInt()}/10) :",
-                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
+                    text = "Douleur avant la prise : EVA ${initialPainScore.toInt()}/10",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                    color = Color(0xFF00365B)
                 )
 
                 Slider(
-                    value = painScore,
-                    onValueChange = { painScore = it },
+                    value = initialPainScore,
+                    onValueChange = { initialPainScore = it },
                     valueRange = 0f..10f,
                     steps = 9,
                     colors = SliderDefaults.colors(
@@ -573,11 +554,165 @@ private fun AddMedicationIntakeDialog(
                     )
                 )
 
+                // 2. Nom du médicament (Liste déroulante)
+                Text(
+                    text = "Nom du médicament :",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
+                )
+
+                ExposedDropdownMenuBox(
+                    expanded = medExpanded,
+                    onExpandedChange = { medExpanded = !medExpanded },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    OutlinedTextField(
+                        value = if (selectedName == "Autre") "Autre..." else selectedName,
+                        onValueChange = {},
+                        readOnly = true,
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = medExpanded) },
+                        modifier = Modifier
+                            .menuAnchor(type = ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                            .fillMaxWidth()
+                    )
+                    ExposedDropdownMenu(
+                        expanded = medExpanded,
+                        onDismissRequest = { medExpanded = false }
+                    ) {
+                        medicationOptions.forEach { option ->
+                            DropdownMenuItem(
+                                text = { Text(option) },
+                                onClick = {
+                                    selectedName = option
+                                    selectedDosage = when (option) {
+                                        "Lamaline" -> "1 gélule"
+                                        "Acupan" -> "20 mg (1 ampoule)"
+                                        "Spasfon" -> "80 mg (2 comprimés)"
+                                        "Doliprane" -> "1000 mg"
+                                        else -> "1 dose"
+                                    }
+                                    medExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                if (selectedName == "Autre") {
+                    OutlinedTextField(
+                        value = customName,
+                        onValueChange = { customName = it },
+                        label = { Text("Nom de la molécule *") },
+                        placeholder = { Text("Ex: Tramadol, Célestène...") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                // 3. Dosage (Liste déroulante)
+                Text(
+                    text = "Dosage :",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
+                )
+
+                ExposedDropdownMenuBox(
+                    expanded = dosageExpanded,
+                    onExpandedChange = { dosageExpanded = !dosageExpanded },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    OutlinedTextField(
+                        value = if (selectedDosage == "Autre dosage...") "Autre dosage..." else selectedDosage,
+                        onValueChange = {},
+                        readOnly = true,
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dosageExpanded) },
+                        modifier = Modifier
+                            .menuAnchor(type = ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                            .fillMaxWidth()
+                    )
+                    ExposedDropdownMenu(
+                        expanded = dosageExpanded,
+                        onDismissRequest = { dosageExpanded = false }
+                    ) {
+                        dosageOptions.forEach { option ->
+                            DropdownMenuItem(
+                                text = { Text(option) },
+                                onClick = {
+                                    selectedDosage = option
+                                    dosageExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                if (selectedDosage == "Autre dosage..." || selectedName == "Autre") {
+                    OutlinedTextField(
+                        value = customDosage,
+                        onValueChange = { customDosage = it },
+                        label = { Text("Préciser le dosage") },
+                        placeholder = { Text("Ex: 1 sachet, 15 gouttes...") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                // 4. Douleur après 1h (Optionnelle dès la prise ou ultérieure)
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color(0xFFF5F9FA),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE0E0E0)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "Renseigner la douleur après 1h :",
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                                color = Color(0xFF00365B),
+                                modifier = Modifier.weight(1f)
+                            )
+                            androidx.compose.material3.Switch(
+                                checked = evaluateNow,
+                                onCheckedChange = { evaluateNow = it }
+                            )
+                        }
+
+                        if (evaluateNow) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Douleur après 1h d'action (EVA : ${postPainScore.toInt()}/10) :",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = Color(0xFF1B5E20)
+                            )
+                            Slider(
+                                value = postPainScore,
+                                onValueChange = { postPainScore = it },
+                                valueRange = 0f..10f,
+                                steps = 9,
+                                colors = SliderDefaults.colors(
+                                    thumbColor = Color(0xFF1B5E20),
+                                    activeTrackColor = Color(0xFF2E7D32)
+                                )
+                            )
+                        } else {
+                            Text(
+                                text = "Vous pourrez cliquer à tout moment sur la ligne dans l'historique pour renseigner l'EVA après coup.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.Gray
+                            )
+                        }
+                    }
+                }
+
+                // 5. Remarques
                 OutlinedTextField(
                     value = notes,
                     onValueChange = { notes = it },
                     label = { Text("Remarques / Symptôme (facultatif)") },
-                    placeholder = { Text("Ex: Crampes pelviennes, coliques…") },
+                    placeholder = { Text("Ex: Crampes pelviennes, coliques...") },
                     maxLines = 2,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -587,12 +722,14 @@ private fun AddMedicationIntakeDialog(
             Button(
                 onClick = {
                     val finalName = if (selectedName == "Autre") customName.trim() else selectedName
+                    val finalDosage = if (selectedDosage == "Autre dosage..." || selectedName == "Autre") customDosage.trim() else selectedDosage
                     if (finalName.isNotBlank()) {
                         onConfirm(
                             finalName,
-                            dosage.trim(),
+                            finalDosage,
                             "Antalgique",
-                            painScore.toInt(),
+                            initialPainScore.toInt(),
+                            if (evaluateNow) postPainScore.toInt() else null,
                             notes.takeIf { it.isNotBlank() }
                         )
                     }
@@ -615,8 +752,8 @@ private fun EvaluateReliefDialog(
     onConfirm: (postPainScore: Int, notes: String?) -> Unit
 ) {
     val initial = intake.initialPainScore ?: 5
-    var postScore by remember { mutableFloatStateOf(initial.coerceAtMost(3).toFloat()) }
-    var notes by remember { mutableStateOf("") }
+    var postScore by remember { mutableFloatStateOf((intake.postPainScore ?: initial.coerceAtMost(3)).toFloat()) }
+    var notes by remember { mutableStateOf(intake.notes.orEmpty()) }
 
     val delta = (initial - postScore.toInt()).coerceAtLeast(0)
     val relief = if (initial > 0) ((delta.toDouble() / initial) * 100).toInt() else 100
@@ -624,7 +761,7 @@ private fun EvaluateReliefDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text("Évaluer le soulagement", fontWeight = FontWeight.Bold)
+            Text("Évaluer la douleur à H+1", fontWeight = FontWeight.Bold)
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -634,7 +771,7 @@ private fun EvaluateReliefDialog(
                 )
 
                 Text(
-                    text = "Douleur actuelle ressentie (EVA : ${postScore.toInt()}/10) :",
+                    text = "Douleur après 1h d'action (EVA : ${postScore.toInt()}/10) :",
                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                     color = Color(0xFF00365B)
                 )
@@ -679,11 +816,11 @@ private fun EvaluateReliefDialog(
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1A8B55))
             ) {
-                Text("Valider l'évaluation")
+                Text("Enregistrer l'évaluation")
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Plus tard") }
+            TextButton(onClick = onDismiss) { Text("Annuler") }
         }
     )
 }

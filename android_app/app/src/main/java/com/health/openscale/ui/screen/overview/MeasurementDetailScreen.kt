@@ -423,6 +423,11 @@ fun MeasurementDetailScreen(
                     // (and may appear on the previous screen).
                     savedImages = valueList.mapNotNull { it.textValue }.toSet()
                     sharedViewModel.saveMeasurement(measurementToSave, valueList)
+                    sharedViewModel.openHealthCheckinSheet(
+                        userId = effectiveUserIdForSave,
+                        measurementId = if (measurementToSave.id > 0) measurementToSave.id else null,
+                        existingCheckin = null
+                    )
                     pendingUserId = null
                     isPendingNavigation = true
                     navController.popBackStack()
