@@ -399,7 +399,7 @@ private fun ChoicePill(
         else -> MaterialTheme.colorScheme.surface
     }
     val contentColor = when {
-        selected -> Color.WHITE
+        selected -> Color.White
         isAlert -> Color(0xFFD32F2F)
         else -> MaterialTheme.colorScheme.onSurface
     }
