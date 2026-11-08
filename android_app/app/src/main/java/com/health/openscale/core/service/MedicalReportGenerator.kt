@@ -94,6 +94,9 @@ object MedicalReportGenerator {
         val stomaRepo = com.health.openscale.core.stoma.StomaTrackingRepository(context)
         val stomaSummary = stomaRepo.getTodaySummary()
 
+        val medRepo = com.health.openscale.core.medication.MedicationRepository(context)
+        val medStats = medRepo.computeStats(startDate)
+
         // --- PAGE 1: Clinical Header, KPIs, Chart & Analysis ---
         val pageInfo1 = PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, 1).create()
         val page1 = pdfDocument.startPage(pageInfo1)
@@ -123,7 +126,8 @@ object MedicalReportGenerator {
             checkins = filteredCheckins,
             sleepSummary = sleepSummary,
             tempSummary = tempSummary,
-            stomaSummary = stomaSummary
+            stomaSummary = stomaSummary,
+            medStats = medStats
         )
         pdfDocument.finishPage(page1)
 
@@ -182,7 +186,8 @@ object MedicalReportGenerator {
         checkins: List<HealthCheckin>,
         sleepSummary: ClinicalSleepSummary,
         tempSummary: ClinicalTempSummary,
-        stomaSummary: com.health.openscale.core.stoma.DailyStomaSummary? = null
+        stomaSummary: com.health.openscale.core.stoma.DailyStomaSummary? = null,
+        medStats: List<com.health.openscale.core.medication.MedicationStats> = emptyList()
     ) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
@@ -318,7 +323,7 @@ object MedicalReportGenerator {
         // Insights Box
         y += 8f
         paint.color = Color.rgb(248, 249, 250)
-        val insightCard = RectF(20f, y, PAGE_WIDTH - 20f, y + 104f)
+        val insightCard = RectF(20f, y, PAGE_WIDTH - 20f, y + 120f)
         canvas.drawRoundRect(insightCard, 6f, 6f, paint)
         paint.color = Color.rgb(200, 215, 215)
         paint.style = Paint.Style.STROKE
@@ -354,13 +359,21 @@ object MedicalReportGenerator {
             "✓ Thermométrie & Gluten : ${if (glutenSuspicions == 0) "Observance stricte sans incident notifié. Confort intestinal régulier." else "$glutenSuspicions suspicion(s) notifiée(s)."}"
         }
 
-        canvas.drawText(obsStoma, 30f, y + 20f, paint)
-        canvas.drawText(obsEndo, 30f, y + 42f, paint)
-        canvas.drawText(obsSleep, 30f, y + 64f, paint)
-        canvas.drawText(obsTempGluten, 30f, y + 86f, paint)
+        val obsMed = if (medStats.isNotEmpty()) {
+            val top = medStats.first()
+            "✓ Traitements & Antalgie : ${top.name} pris ${top.totalIntakes}x (${top.avgReliefPercent}% soulagement moyen). EVA : ${String.format(Locale.FRANCE, "%.1f", top.avgInitialPain)} ➔ ${String.format(Locale.FRANCE, "%.1f", top.avgPostPain)}/10."
+        } else {
+            "✓ Traitements & Antalgie : Observance suivie et tolérance thérapeutique documentée lors des consultations."
+        }
+
+        canvas.drawText(obsStoma, 30f, y + 18f, paint)
+        canvas.drawText(obsEndo, 30f, y + 38f, paint)
+        canvas.drawText(obsSleep, 30f, y + 58f, paint)
+        canvas.drawText(obsTempGluten, 30f, y + 78f, paint)
+        canvas.drawText(obsMed, 30f, y + 98f, paint)
 
         // Section Title: Trend Chart
-        y += 122f
+        y += 134f
         paint.color = Color.rgb(30, 40, 45)
         paint.textSize = 11.5f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)

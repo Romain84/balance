@@ -470,6 +470,12 @@ fun OverviewScreen(
                                         onOrderClick = {
                                             navController.navigate(Routes.STOMA_ORDER)
                                         },
+                                        onConsultationClick = {
+                                            navController.navigate(Routes.DOCTOR_CONSULTATION)
+                                        },
+                                        onMedicationClick = {
+                                            navController.navigate(Routes.MEDICATION_LOG)
+                                        },
                                         isStomaEnabled = isStomaEnabled
                                     )
                                     if (isStomaEnabled) {
@@ -702,6 +708,12 @@ fun OverviewScreen(
                                                 },
                                                 onOrderClick = {
                                                     navController.navigate(Routes.STOMA_ORDER)
+                                                },
+                                                onConsultationClick = {
+                                                    navController.navigate(Routes.DOCTOR_CONSULTATION)
+                                                },
+                                                onMedicationClick = {
+                                                    navController.navigate(Routes.MEDICATION_LOG)
                                                 },
                                                 isStomaEnabled = isStomaEnabled
                                             )
@@ -957,6 +969,8 @@ fun HealthAssistantCard(
     onCheckinClick: () -> Unit,
     onReportClick: () -> Unit,
     onOrderClick: () -> Unit = {},
+    onConsultationClick: () -> Unit = {},
+    onMedicationClick: () -> Unit = {},
     isStomaEnabled: Boolean = true
 ) {
     Card(
@@ -1065,6 +1079,35 @@ fun HealthAssistantCard(
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("Commander 📦", style = MaterialTheme.typography.labelMedium)
                     }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onConsultationClick,
+                    modifier = Modifier.weight(1.2f),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = Color(0xFF00365B)
+                    )
+                ) {
+                    Text("🩺 Consultation", maxLines = 1, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+
+                OutlinedButton(
+                    onClick = onMedicationClick,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = Color(0xFF2E7D32)
+                    )
+                ) {
+                    Text("💊 Traitements", maxLines = 1, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
