@@ -41,6 +41,7 @@ object Routes {
     const val SETTINGS = "settings"
 
     const val MEASUREMENT_DETAIL = "measurementDetail" // Not a main navigation item, but a route
+    const val STOMA_ORDER = "stoma_order"
 
     // Sub-pages (Settings Subgraph)
     const val GENERAL_SETTINGS = "settings/general"

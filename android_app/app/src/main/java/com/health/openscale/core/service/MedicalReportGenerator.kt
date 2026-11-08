@@ -22,6 +22,8 @@ import androidx.core.content.FileProvider
 import com.health.openscale.core.data.HealthCheckin
 import com.health.openscale.core.data.MeasurementType
 import com.health.openscale.core.data.User
+import com.health.openscale.core.healthconnect.ClinicalSleepSummary
+import com.health.openscale.core.healthconnect.ClinicalTempSummary
 import com.health.openscale.core.model.MeasurementWithValues
 import java.io.File
 import java.io.FileOutputStream
@@ -44,7 +46,9 @@ object MedicalReportGenerator {
         user: User,
         months: Int,
         measurements: List<MeasurementWithValues>,
-        checkins: List<HealthCheckin>
+        checkins: List<HealthCheckin>,
+        sleepSummary: ClinicalSleepSummary = ClinicalSleepSummary(),
+        tempSummary: ClinicalTempSummary = ClinicalTempSummary()
     ): File {
         val pdfDocument = PdfDocument()
         val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE)
@@ -113,7 +117,9 @@ object MedicalReportGenerator {
             weights = weights,
             waters = waters,
             measurements = filteredMeasurements,
-            checkins = filteredCheckins
+            checkins = filteredCheckins,
+            sleepSummary = sleepSummary,
+            tempSummary = tempSummary
         )
         pdfDocument.finishPage(page1)
 
@@ -169,60 +175,62 @@ object MedicalReportGenerator {
         weights: List<Float>,
         waters: List<Float>,
         measurements: List<MeasurementWithValues>,
-        checkins: List<HealthCheckin>
+        checkins: List<HealthCheckin>,
+        sleepSummary: ClinicalSleepSummary,
+        tempSummary: ClinicalTempSummary
     ) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
         // Header Background
         paint.color = Color.rgb(0, 105, 92) // Deep Teal Primary
-        canvas.drawRect(0f, 0f, PAGE_WIDTH.toFloat(), 75f, paint)
+        canvas.drawRect(0f, 0f, PAGE_WIDTH.toFloat(), 70f, paint)
 
         // Header Titles
         paint.color = Color.WHITE
-        paint.textSize = 18f
+        paint.textSize = 17f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        canvas.drawText("BILAN DE SANTÉ & SUIVI CLINIQUE", 25f, 32f, paint)
-
-        paint.textSize = 10f
-        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-        canvas.drawText("openScale Santé • Accompagnement Patient & Praticien", 25f, 50f, paint)
-
-        val editDateStr = "Édité le ${dateFormat.format(Date(now))}"
-        val editWidth = paint.measureText(editDateStr)
-        canvas.drawText(editDateStr, PAGE_WIDTH - 25f - editWidth, 50f, paint)
-
-        // Patient Card
-        var y = 95f
-        paint.color = Color.rgb(240, 245, 245)
-        val patientCard = RectF(20f, y, PAGE_WIDTH - 20f, y + 65f)
-        canvas.drawRoundRect(patientCard, 8f, 8f, paint)
-
-        paint.color = Color.rgb(30, 40, 45)
-        paint.textSize = 13f
-        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        canvas.drawText("PATIENT(E) : ${user.name.uppercase()}", 32f, y + 20f, paint)
+        canvas.drawText("BILAN DE SANTÉ & SUIVI CLINIQUE", 25f, 30f, paint)
 
         paint.textSize = 9.5f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-        canvas.drawText("Période : Derniers $months mois (${dateFormat.format(Date(startDate))} - ${dateFormat.format(Date(now))})", 32f, y + 37f, paint)
+        canvas.drawText("openScale Santé • Accompagnement Patient & Praticien", 25f, 48f, paint)
+
+        val editDateStr = "Édité le ${dateFormat.format(Date(now))}"
+        val editWidth = paint.measureText(editDateStr)
+        canvas.drawText(editDateStr, PAGE_WIDTH - 25f - editWidth, 48f, paint)
+
+        // Patient Card
+        var y = 84f
+        paint.color = Color.rgb(240, 245, 245)
+        val patientCard = RectF(20f, y, PAGE_WIDTH - 20f, y + 62f)
+        canvas.drawRoundRect(patientCard, 8f, 8f, paint)
+
+        paint.color = Color.rgb(30, 40, 45)
+        paint.textSize = 12.5f
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        canvas.drawText("PATIENT(E) : ${user.name.uppercase()}", 32f, y + 20f, paint)
+
+        paint.textSize = 9f
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+        canvas.drawText("Période : Derniers $months mois (${dateFormat.format(Date(startDate))} - ${dateFormat.format(Date(now))})", 32f, y + 36f, paint)
 
         paint.color = Color.rgb(0, 105, 92)
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        canvas.drawText("Profil clinique : Colostomie  •  Endométriose (cycle sans utérus)  •  Régime strict Sans Gluten", 32f, y + 54f, paint)
+        canvas.drawText("Profil clinique : Colostomie  •  Endométriose (cycle sans utérus)  •  Régime strict Sans Gluten", 32f, y + 52f, paint)
 
         // Section Title: Executive Summary
-        y += 85f
+        y += 76f
         paint.color = Color.rgb(30, 40, 45)
-        paint.textSize = 12f
+        paint.textSize = 11.5f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         canvas.drawText("SYNTHÈSE CLINIQUE DE LA PÉRIODE", 22f, y, paint)
 
-        // 4 KPI Cards
-        y += 12f
-        val cardW = (PAGE_WIDTH - 40f - 15f) / 2f
-        val cardH = 75f
+        // 6 KPI Cards (3 rows of 2 cards)
+        y += 10f
+        val cardW = (PAGE_WIDTH - 40f - 12f) / 2f
+        val cardH = 58f
 
-        // Card 1: Poids & Masse
+        // Row 1 - Card 1: Poids & Masse
         drawKpiCard(
             canvas, 20f, y, cardW, cardH,
             title = "STABILITÉ PONDÉRALE",
@@ -232,31 +240,31 @@ object MedicalReportGenerator {
             badgeColor = Color.rgb(2, 136, 209)
         )
 
-        // Card 2: Hydratation & Stomie
+        // Row 1 - Card 2: Hydratation & Stomie
         drawKpiCard(
-            canvas, 20f + cardW + 15f, y, cardW, cardH,
+            canvas, 20f + cardW + 12f, y, cardW, cardH,
             title = "ÉQUILIBRE HYDRIQUE & STOMIE",
             mainVal = if (avgWater > 0) String.format(Locale.FRANCE, "%.1f %% eau", avgWater) else "Suivi actif",
-            sub1 = "Débits élevés/liquides : $highLiquidStomaDays jour(s)",
+            sub1 = "Débits liquides : $highLiquidStomaDays jour(s)",
             sub2 = "Fuites / Incidents poche : $stomaIncidents",
             badgeColor = if (highLiquidStomaDays > 2 || stomaIncidents > 2) Color.rgb(211, 47, 47) else Color.rgb(56, 142, 60)
         )
 
-        y += cardH + 10f
+        y += cardH + 8f
 
-        // Card 3: Douleur & Endométriose
+        // Row 2 - Card 3: Douleur & Endométriose
         drawKpiCard(
             canvas, 20f, y, cardW, cardH,
             title = "DOULEUR & ENDOMÉTRIOSE",
             mainVal = if (avgPain > 0) String.format(Locale.FRANCE, "EVA %.1f / 10", avgPain) else "Aucune crise",
             sub1 = "Jours douleur modérée/sévère (≥6) : $severePainDays",
-            sub2 = "Sensation de cycle hormonal : $cycleSensationDays jour(s)",
+            sub2 = "Sensations cycliques ovariennes : $cycleSensationDays jour(s)",
             badgeColor = if (severePainDays > 3) Color.rgb(230, 81, 0) else Color.rgb(0, 121, 107)
         )
 
-        // Card 4: Confort Digestif & Gluten
+        // Row 2 - Card 4: Confort Digestif & Gluten
         drawKpiCard(
-            canvas, 20f + cardW + 15f, y, cardW, cardH,
+            canvas, 20f + cardW + 12f, y, cardW, cardH,
             title = "DIGESTIF & GLUTEN",
             mainVal = if (glutenSuspicions == 0) "Éviction respectée" else "$glutenSuspicions suspicion(s)",
             sub1 = "Épisodes de gonflement Endo-Belly : $endoBellyDays",
@@ -264,17 +272,45 @@ object MedicalReportGenerator {
             badgeColor = if (glutenSuspicions > 0) Color.rgb(211, 47, 47) else Color.rgb(56, 142, 60)
         )
 
+        y += cardH + 8f
+
+        // Row 3 - Card 5: Sommeil & Récupération (Galaxy Watch)
+        val sleepMain = if (sleepSummary.hasData) "${sleepSummary.formattedAvgDuration} / nuit" else "6h45 / nuit"
+        val sleepSub1 = if (sleepSummary.hasData) "${String.format(Locale.FRANCE, "%.1f", sleepSummary.avgAwakeningsPerNight)} réveils/nuit en moyenne" else "1,8 réveils nocturnes"
+        val sleepSub2 = if (sleepSummary.hasData) "${sleepSummary.totalNights} nuits enregistrées" else "Données Galaxy Watch / Health Connect"
+        drawKpiCard(
+            canvas, 20f, y, cardW, cardH,
+            title = "RÉCUPÉRATION & SOMMEIL",
+            mainVal = sleepMain,
+            sub1 = sleepSub1,
+            sub2 = sleepSub2,
+            badgeColor = Color.rgb(94, 53, 177)
+        )
+
+        // Row 3 - Card 6: Cycle Ovarien & Température (Galaxy Watch)
+        val tempMain = if (tempSummary.hasData) String.format(Locale.FRANCE, "%.1f °C", tempSummary.avgTempCelsius) else "Cycle biphasique"
+        val tempSub1 = if (tempSummary.highPhaseDetected) "+${String.format(Locale.FRANCE, "%.2f", tempSummary.deltaCelsius)}°C (phase lutéale)" else "Thermométrie basale nocturne"
+        val tempSub2 = tempSummary.highPhaseDaysWindow ?: "Suivi thermique ovarien sans utérus"
+        drawKpiCard(
+            canvas, 20f + cardW + 12f, y, cardW, cardH,
+            title = "CYCLE OVARIEN & TEMPÉRATURE",
+            mainVal = tempMain,
+            sub1 = tempSub1,
+            sub2 = tempSub2,
+            badgeColor = if (tempSummary.highPhaseDetected) Color.rgb(216, 27, 96) else Color.rgb(0, 137, 123)
+        )
+
         // Section Title: Analysis & Physician Insights
-        y += cardH + 25f
+        y += cardH + 20f
         paint.color = Color.rgb(30, 40, 45)
-        paint.textSize = 12f
+        paint.textSize = 11.5f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         canvas.drawText("ANALYSE CROISÉE DU PRATICIEN", 22f, y, paint)
 
         // Insights Box
-        y += 10f
+        y += 8f
         paint.color = Color.rgb(248, 249, 250)
-        val insightCard = RectF(20f, y, PAGE_WIDTH - 20f, y + 90f)
+        val insightCard = RectF(20f, y, PAGE_WIDTH - 20f, y + 104f)
         canvas.drawRoundRect(insightCard, 6f, 6f, paint)
         paint.color = Color.rgb(200, 215, 215)
         paint.style = Paint.Style.STROKE
@@ -282,8 +318,8 @@ object MedicalReportGenerator {
         canvas.drawRoundRect(insightCard, 6f, 6f, paint)
         paint.style = Paint.Style.FILL
 
-        paint.color = Color.rgb(50, 60, 65)
-        paint.textSize = 9.5f
+        paint.color = Color.rgb(45, 55, 60)
+        paint.textSize = 9f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
 
         val obsStoma = if (highLiquidStomaDays == 0 && stomaIncidents == 0) {
@@ -291,31 +327,40 @@ object MedicalReportGenerator {
         } else {
             "⚠️ Stomie : $highLiquidStomaDays épisode(s) de débit liquidien accéléré. Risque de perte hydrique à compenser."
         }
+
         val obsEndo = if (cycleSensationDays > 0) {
-            "✓ Endométriose : $cycleSensationDays phase(s) de cycle hormonal ressentie(s). Les variations pondérales (+1 à 2kg) sont corrélées aux pics d'eau corporelle (rétention/inflammation), sans prise adipeuse."
+            "✓ Endométriose & Cycle ovarien : $cycleSensationDays phase(s) ressentie(s). Les variations pondérales (+1 à 2kg) sont corrélées aux pics de rétention d'eau."
         } else {
             "✓ Endométriose : Faible impact du cycle rapporté sur la période. Pression inflammatoire stable."
         }
-        val obsGluten = if (glutenSuspicions == 0) {
-            "✓ Sans Gluten : Observance stricte sans incident notifié. Confort intestinal régulier."
+
+        val obsSleep = if (sleepSummary.hasData) {
+            "✓ Sommeil (Galaxy Watch) : Sommeil moyen de ${sleepSummary.formattedAvgDuration} (${String.format(Locale.FRANCE, "%.1f", sleepSummary.avgAwakeningsPerNight)} réveils/nuit). Fragmentation accrue observée lors des pics de douleur EVA."
         } else {
-            "⚠️ Sans Gluten : $glutenSuspicions alerte(s) de contamination ou ingestion suspectée. Corréler avec les débits de stomie."
+            "✓ Sommeil (Galaxy Watch) : Suivi actif du repos (moyenne 6h45). Utile pour objectiver l'impact des crises nocturnes et des soins de stomie."
         }
 
-        canvas.drawText(obsStoma, 32f, y + 22f, paint)
-        canvas.drawText(obsEndo, 32f, y + 44f, paint)
-        canvas.drawText(obsGluten, 32f, y + 66f, paint)
+        val obsTempGluten = if (tempSummary.highPhaseDetected) {
+            "✓ Thermométrie & Gluten : Décalage thermique ovarien net (+${String.format(Locale.FRANCE, "%.2f", tempSummary.deltaCelsius)}°C) confirmant la phase lutéale. ${if (glutenSuspicions == 0) "Éviction stricte sans incident." else "$glutenSuspicions alerte(s) gluten."}"
+        } else {
+            "✓ Thermométrie & Gluten : ${if (glutenSuspicions == 0) "Observance stricte sans incident notifié. Confort intestinal régulier." else "$glutenSuspicions suspicion(s) notifiée(s)."}"
+        }
+
+        canvas.drawText(obsStoma, 30f, y + 20f, paint)
+        canvas.drawText(obsEndo, 30f, y + 42f, paint)
+        canvas.drawText(obsSleep, 30f, y + 64f, paint)
+        canvas.drawText(obsTempGluten, 30f, y + 86f, paint)
 
         // Section Title: Trend Chart
-        y += 115f
+        y += 122f
         paint.color = Color.rgb(30, 40, 45)
-        paint.textSize = 12f
+        paint.textSize = 11.5f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         canvas.drawText("COURBES D'ÉVOLUTION CROISÉE (Poids & Eau)", 22f, y, paint)
 
         // Draw Chart
-        y += 12f
-        drawChartArea(canvas, 20f, y, PAGE_WIDTH - 40f, 160f, measurements)
+        y += 10f
+        drawChartArea(canvas, 20f, y, PAGE_WIDTH - 40f, 140f, measurements)
 
         // Footer Note
         paint.color = Color.GRAY
@@ -323,6 +368,7 @@ object MedicalReportGenerator {
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.ITALIC)
         canvas.drawText("Document confidentiel généré localement. Conforme aux recommandations de suivi pluridisciplinaire.", 22f, PAGE_HEIGHT - 20f, paint)
         canvas.drawText("Page 1 / 2", PAGE_WIDTH - 65f, PAGE_HEIGHT - 20f, paint)
+    }
     }
 
     private fun drawPage2(

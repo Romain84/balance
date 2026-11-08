@@ -14,6 +14,8 @@
     <uses-permission android:name="android.permission.health.WRITE_LEAN_BODY_MASS" />
     <uses-permission android:name="android.permission.health.WRITE_BONE_MASS" />
     <uses-permission android:name="android.permission.health.WRITE_BASAL_METABOLIC_RATE" />
+    <uses-permission android:name="android.permission.health.READ_SLEEP" />
+    <uses-permission android:name="android.permission.health.READ_BASAL_BODY_TEMPERATURE" />
 
     <!-- openScale works fully offline: strip network access even if a library declares it. -->
     <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />

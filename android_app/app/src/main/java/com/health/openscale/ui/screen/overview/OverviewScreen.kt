@@ -62,10 +62,12 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.ShoppingCart
 import com.health.openscale.ui.screen.dialog.HealthCheckinSheet
 import com.health.openscale.ui.screen.dialog.MedicalReportDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -402,14 +404,42 @@ fun OverviewScreen(
                     is SharedViewModel.UiState.Success -> {
 
                         if (aggregatedItems.isEmpty()) {
-                            Box(
-                                Modifier.weight(1f).fillMaxSize(),
-                                contentAlignment = Alignment.Center,
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxSize()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                NoMeasurementsCard(
-                                    navController  = navController,
-                                    selectedUserId = selectedUserId,
-                                )
+                                if (isHealthAssistantEnabled && !isDrillDown) {
+                                    HealthAssistantCard(
+                                        latestCheckin = latestCheckin,
+                                        onCheckinClick = {
+                                            sharedViewModel.openHealthCheckinSheet(
+                                                userId = activeUserId,
+                                                measurementId = null,
+                                                existingCheckin = latestCheckin
+                                            )
+                                        },
+                                        onReportClick = {
+                                            sharedViewModel.openMedicalReportDialog()
+                                        },
+                                        onOrderClick = {
+                                            navController.navigate(Routes.STOMA_ORDER)
+                                        },
+                                        isStomaEnabled = isStomaEnabled
+                                    )
+                                }
+                                Box(
+                                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    NoMeasurementsCard(
+                                        navController  = navController,
+                                        selectedUserId = selectedUserId,
+                                    )
+                                }
                             }
                         } else {
                             // Scroll to top when the newest item changes
@@ -617,7 +647,11 @@ fun OverviewScreen(
                                                 },
                                                 onReportClick = {
                                                     sharedViewModel.openMedicalReportDialog()
-                                                }
+                                                },
+                                                onOrderClick = {
+                                                    navController.navigate(Routes.STOMA_ORDER)
+                                                },
+                                                isStomaEnabled = isStomaEnabled
                                             )
                                         }
                                     }
@@ -857,7 +891,9 @@ fun OverviewScreen(
 fun HealthAssistantCard(
     latestCheckin: com.health.openscale.core.data.HealthCheckin?,
     onCheckinClick: () -> Unit,
-    onReportClick: () -> Unit
+    onReportClick: () -> Unit,
+    onOrderClick: () -> Unit = {},
+    isStomaEnabled: Boolean = true
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -934,14 +970,38 @@ fun HealthAssistantCard(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            Button(
-                onClick = onCheckinClick,
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(
-                    text = if (latestCheckin != null) "Modifier mon Check-in Santé" else "🩺 Faire mon Check-in Santé du Jour"
-                )
+                Button(
+                    onClick = onCheckinClick,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        text = if (latestCheckin != null) "Modifier Check-in" else "🩺 Check-in Santé",
+                        maxLines = 1
+                    )
+                }
+
+                if (isStomaEnabled) {
+                    OutlinedButton(
+                        onClick = onOrderClick,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ShoppingCart,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Commander 📦", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
             }
         }
     }

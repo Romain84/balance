@@ -54,6 +54,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.health.openscale.core.data.HealthCheckin
 import com.health.openscale.core.data.User
+import com.health.openscale.core.healthconnect.ClinicalHealthConnectReader
 import com.health.openscale.core.model.MeasurementWithValues
 import com.health.openscale.core.service.MedicalReportGenerator
 import kotlinx.coroutines.Dispatchers
@@ -172,7 +173,7 @@ fun MedicalReportDialog(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "• Stabilité du poids & % eau corporelle\n• Fréquence des débits & incidents de stomie\n• Échelle EVA douleur & cycle ressenti\n• Confort digestif & suspicions d'écart sans gluten",
+                            text = "• Stabilité du poids & % eau corporelle\n• Fréquence des débits & incidents de stomie\n• Échelle EVA douleur & cycle ressenti\n• Sommeil & thermométrie basale (Galaxy Watch)\n• Confort digestif & éviction sans gluten",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -186,12 +187,23 @@ fun MedicalReportDialog(
                     isGenerating = true
                     scope.launch(Dispatchers.IO) {
                         try {
+                            val calendar = java.util.Calendar.getInstance()
+                            val now = calendar.timeInMillis
+                            calendar.add(java.util.Calendar.MONTH, -selectedMonths)
+                            val startDate = calendar.timeInMillis
+
+                            val reader = ClinicalHealthConnectReader(context)
+                            val sleepSummary = reader.readSleepSummary(startDate, now)
+                            val tempSummary = reader.readBasalTempSummary(startDate, now)
+
                             val pdfFile = MedicalReportGenerator.generateReport(
                                 context = context,
                                 user = user,
                                 months = selectedMonths,
                                 measurements = measurements,
-                                checkins = checkins
+                                checkins = checkins,
+                                sleepSummary = sleepSummary,
+                                tempSummary = tempSummary
                             )
                             withContext(Dispatchers.Main) {
                                 isGenerating = false

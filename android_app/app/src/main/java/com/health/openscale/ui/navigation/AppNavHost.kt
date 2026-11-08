@@ -74,6 +74,7 @@ import com.health.openscale.ui.screen.settings.SettingsScreen
 import com.health.openscale.ui.screen.settings.SettingsViewModel
 import com.health.openscale.ui.screen.settings.UserDetailScreen
 import com.health.openscale.ui.screen.settings.UserSettingsScreen
+import com.health.openscale.ui.screen.stoma.StomaOrderScreen
 import com.health.openscale.core.data.AggregationLevel
 import com.health.openscale.ui.screen.statistics.MeasurementComparisonScreen
 import com.health.openscale.ui.screen.statistics.StatisticsScreen
@@ -290,6 +291,12 @@ fun AppNavHost(
                     navController = navController,
                     sharedViewModel = sharedViewModel,
                     bluetoothViewModel = bluetoothViewModel
+                )
+            }
+            composable(Routes.STOMA_ORDER) {
+                StomaOrderScreen(
+                    navController = navController,
+                    sharedViewModel = sharedViewModel
                 )
             }
         }
