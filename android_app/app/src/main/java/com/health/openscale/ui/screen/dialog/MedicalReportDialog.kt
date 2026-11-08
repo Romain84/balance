@@ -195,6 +195,8 @@ fun MedicalReportDialog(
                             val reader = ClinicalHealthConnectReader(context)
                             val sleepSummary = reader.readSleepSummary(startDate, now)
                             val tempSummary = reader.readBasalTempSummary(startDate, now)
+                            val hrSummary = reader.readHeartRateSummary(startDate, now)
+                            val stepsSummary = reader.readStepsSummary(startDate, now)
 
                             val pdfFile = MedicalReportGenerator.generateReport(
                                 context = context,
@@ -203,7 +205,9 @@ fun MedicalReportDialog(
                                 measurements = measurements,
                                 checkins = checkins,
                                 sleepSummary = sleepSummary,
-                                tempSummary = tempSummary
+                                tempSummary = tempSummary,
+                                hrSummary = hrSummary,
+                                stepsSummary = stepsSummary
                             )
                             withContext(Dispatchers.Main) {
                                 isGenerating = false

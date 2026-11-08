@@ -67,7 +67,9 @@ import androidx.navigation.NavController
 import com.health.openscale.core.data.HealthCheckin
 import com.health.openscale.core.data.MeasurementType
 import com.health.openscale.core.healthconnect.ClinicalHealthConnectReader
+import com.health.openscale.core.healthconnect.ClinicalHeartRateSummary
 import com.health.openscale.core.healthconnect.ClinicalSleepSummary
+import com.health.openscale.core.healthconnect.ClinicalStepsSummary
 import com.health.openscale.core.healthconnect.ClinicalTempSummary
 import com.health.openscale.core.medication.MedicationRepository
 import com.health.openscale.core.model.MeasurementWithValues
@@ -98,6 +100,8 @@ fun DoctorConsultationScreen(
     var checkins by remember { mutableStateOf<List<HealthCheckin>>(emptyList()) }
     var sleepSummary by remember { mutableStateOf(ClinicalSleepSummary()) }
     var tempSummary by remember { mutableStateOf(ClinicalTempSummary()) }
+    var heartRateSummary by remember { mutableStateOf(ClinicalHeartRateSummary()) }
+    var stepsSummary by remember { mutableStateOf(ClinicalStepsSummary()) }
 
     // Load data for the selected period
     LaunchedEffect(activeUser, selectedMonths) {
@@ -117,12 +121,16 @@ fun DoctorConsultationScreen(
             val reader = ClinicalHealthConnectReader(context)
             val sSummary = reader.readSleepSummary(startDate, now)
             val tSummary = reader.readBasalTempSummary(startDate, now)
+            val hrSummary = reader.readHeartRateSummary(startDate, now)
+            val stSummary = reader.readStepsSummary(startDate, now)
 
             withContext(Dispatchers.Main) {
                 measurements = filteredMeas
                 checkins = filteredCheckins
                 sleepSummary = sSummary
                 tempSummary = tSummary
+                heartRateSummary = hrSummary
+                stepsSummary = stSummary
             }
         }
     }
@@ -346,7 +354,9 @@ fun DoctorConsultationScreen(
                         "Cycle ovarien ressenti" to "$cycleDays j",
                         "Thermométrie basale" to tempText,
                         "Sommeil moyen" to if (sleepSummary.hasData) sleepSummary.formattedAvgDuration else "Enregistré",
-                        "Micro-réveils" to if (sleepSummary.hasData) String.format(Locale.FRANCE, "%.1f / nuit", sleepSummary.avgAwakeningsPerNight) else "--"
+                        "Micro-réveils" to if (sleepSummary.hasData) String.format(Locale.FRANCE, "%.1f / nuit", sleepSummary.avgAwakeningsPerNight) else "--",
+                        "FC Repos moyenne" to if (heartRateSummary.hasData) "${heartRateSummary.avgRestingBpm} bpm" else "--",
+                        "Activité quotidienne" to if (stepsSummary.hasData) String.format(Locale.FRANCE, "%,d pas/j", stepsSummary.avgDailySteps) else "--"
                     ),
                     clinicalRemark = if (severePainDays > 3) {
                         "🟠 Présence de $severePainDays jour(s) de douleurs sévères corrélées aux sensations hormonales ovariennes."

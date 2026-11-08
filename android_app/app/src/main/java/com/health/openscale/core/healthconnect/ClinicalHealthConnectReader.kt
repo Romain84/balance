@@ -13,7 +13,10 @@ import android.content.Context
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.BasalBodyTemperatureRecord
+import androidx.health.connect.client.records.HeartRateRecord
+import androidx.health.connect.client.records.RestingHeartRateRecord
 import androidx.health.connect.client.records.SleepSessionRecord
+import androidx.health.connect.client.records.StepsRecord
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -52,6 +55,20 @@ data class ClinicalTempSummary(
     val deltaCelsius: Float = 0f,
     val highPhaseDaysWindow: String? = null,
     val dailyTemps: Map<LocalDate, Float> = emptyMap()
+)
+
+data class ClinicalHeartRateSummary(
+    val hasData: Boolean = false,
+    val avgRestingBpm: Int = 0,
+    val minBpm: Int = 0,
+    val maxBpm: Int = 0
+)
+
+data class ClinicalStepsSummary(
+    val hasData: Boolean = false,
+    val avgDailySteps: Int = 0,
+    val totalSteps: Long = 0,
+    val daysRecorded: Int = 0
 )
 
 @Singleton
@@ -204,6 +221,92 @@ class ClinicalHealthConnectReader @Inject constructor(
             )
         } catch (_: Exception) {
             ClinicalTempSummary()
+        }
+    }
+
+    suspend fun readHeartRateSummary(startMillis: Long, endMillis: Long): ClinicalHeartRateSummary {
+        if (!isAvailable()) return ClinicalHeartRateSummary()
+
+        return try {
+            val client = HealthConnectClient.getOrCreate(context)
+            // 1. Try to read RestingHeartRateRecord first (highest clinical value for autonomic recovery)
+            val restingReq = ReadRecordsRequest(
+                recordType = RestingHeartRateRecord::class,
+                timeRangeFilter = TimeRangeFilter.between(
+                    Instant.ofEpochMilli(startMillis),
+                    Instant.ofEpochMilli(endMillis)
+                )
+            )
+            val restingRecords = client.readRecords(restingReq).records
+            if (restingRecords.isNotEmpty()) {
+                val bpms = restingRecords.map { it.beatsPerMinute.toInt() }
+                return ClinicalHeartRateSummary(
+                    hasData = true,
+                    avgRestingBpm = bpms.average().toInt(),
+                    minBpm = bpms.minOrNull() ?: 0,
+                    maxBpm = bpms.maxOrNull() ?: 0
+                )
+            }
+
+            // 2. Fallback to HeartRateRecord samples if no resting records
+            val hrReq = ReadRecordsRequest(
+                recordType = HeartRateRecord::class,
+                timeRangeFilter = TimeRangeFilter.between(
+                    Instant.ofEpochMilli(startMillis),
+                    Instant.ofEpochMilli(endMillis)
+                )
+            )
+            val hrRecords = client.readRecords(hrReq).records
+            val allSamples = hrRecords.flatMap { it.samples }.map { it.beatsPerMinute.toInt() }
+            if (allSamples.isNotEmpty()) {
+                ClinicalHeartRateSummary(
+                    hasData = true,
+                    avgRestingBpm = allSamples.average().toInt(),
+                    minBpm = allSamples.minOrNull() ?: 0,
+                    maxBpm = allSamples.maxOrNull() ?: 0
+                )
+            } else {
+                ClinicalHeartRateSummary()
+            }
+        } catch (_: Exception) {
+            ClinicalHeartRateSummary()
+        }
+    }
+
+    suspend fun readStepsSummary(startMillis: Long, endMillis: Long): ClinicalStepsSummary {
+        if (!isAvailable()) return ClinicalStepsSummary()
+
+        return try {
+            val client = HealthConnectClient.getOrCreate(context)
+            val request = ReadRecordsRequest(
+                recordType = StepsRecord::class,
+                timeRangeFilter = TimeRangeFilter.between(
+                    Instant.ofEpochMilli(startMillis),
+                    Instant.ofEpochMilli(endMillis)
+                )
+            )
+            val records = client.readRecords(request).records
+            if (records.isEmpty()) return ClinicalStepsSummary()
+
+            val zone = ZoneId.systemDefault()
+            val dailySteps = mutableMapOf<LocalDate, Long>()
+            var total = 0L
+
+            records.forEach { record ->
+                val date = record.startTime.atZone(zone).toLocalDate()
+                dailySteps[date] = (dailySteps[date] ?: 0L) + record.count
+                total += record.count
+            }
+
+            val dayCount = dailySteps.size.coerceAtLeast(1)
+            ClinicalStepsSummary(
+                hasData = true,
+                totalSteps = total,
+                avgDailySteps = (total / dayCount).toInt(),
+                daysRecorded = dailySteps.size
+            )
+        } catch (_: Exception) {
+            ClinicalStepsSummary()
         }
     }
 }

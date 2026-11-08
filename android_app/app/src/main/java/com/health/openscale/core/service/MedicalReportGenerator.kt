@@ -22,7 +22,9 @@ import androidx.core.content.FileProvider
 import com.health.openscale.core.data.HealthCheckin
 import com.health.openscale.core.data.MeasurementType
 import com.health.openscale.core.data.User
+import com.health.openscale.core.healthconnect.ClinicalHeartRateSummary
 import com.health.openscale.core.healthconnect.ClinicalSleepSummary
+import com.health.openscale.core.healthconnect.ClinicalStepsSummary
 import com.health.openscale.core.healthconnect.ClinicalTempSummary
 import com.health.openscale.core.model.MeasurementWithValues
 import java.io.File
@@ -48,7 +50,9 @@ object MedicalReportGenerator {
         measurements: List<MeasurementWithValues>,
         checkins: List<HealthCheckin>,
         sleepSummary: ClinicalSleepSummary = ClinicalSleepSummary(),
-        tempSummary: ClinicalTempSummary = ClinicalTempSummary()
+        tempSummary: ClinicalTempSummary = ClinicalTempSummary(),
+        hrSummary: ClinicalHeartRateSummary = ClinicalHeartRateSummary(),
+        stepsSummary: ClinicalStepsSummary = ClinicalStepsSummary()
     ): File {
         val pdfDocument = PdfDocument()
         val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE)
@@ -126,6 +130,8 @@ object MedicalReportGenerator {
             checkins = filteredCheckins,
             sleepSummary = sleepSummary,
             tempSummary = tempSummary,
+            hrSummary = hrSummary,
+            stepsSummary = stepsSummary,
             stomaSummary = stomaSummary,
             medStats = medStats
         )
@@ -186,6 +192,8 @@ object MedicalReportGenerator {
         checkins: List<HealthCheckin>,
         sleepSummary: ClinicalSleepSummary,
         tempSummary: ClinicalTempSummary,
+        hrSummary: ClinicalHeartRateSummary = ClinicalHeartRateSummary(),
+        stepsSummary: ClinicalStepsSummary = ClinicalStepsSummary(),
         stomaSummary: com.health.openscale.core.stoma.DailyStomaSummary? = null,
         medStats: List<com.health.openscale.core.medication.MedicationStats> = emptyList()
     ) {
@@ -348,9 +356,12 @@ object MedicalReportGenerator {
         }
 
         val obsSleep = if (sleepSummary.hasData) {
-            "✓ Sommeil (Galaxy Watch) : Sommeil moyen de ${sleepSummary.formattedAvgDuration} (${String.format(Locale.FRANCE, "%.1f", sleepSummary.avgAwakeningsPerNight)} réveils/nuit). Fragmentation accrue observée lors des pics de douleur EVA."
+            val hrStr = if (hrSummary.hasData) " | FC repos : ${hrSummary.avgRestingBpm} bpm" else ""
+            val stepsStr = if (stepsSummary.hasData) " | Activité : ${String.format(Locale.FRANCE, "%,d", stepsSummary.avgDailySteps)} pas/j" else ""
+            "✓ Sommeil & Capteurs Watch : ${sleepSummary.formattedAvgDuration}/nuit (${String.format(Locale.FRANCE, "%.1f", sleepSummary.avgAwakeningsPerNight)} réveils/nuit$hrStr$stepsStr)."
         } else {
-            "✓ Sommeil (Galaxy Watch) : Suivi actif du repos (moyenne 6h45). Utile pour objectiver l'impact des crises nocturnes et des soins de stomie."
+            val hrStr = if (hrSummary.hasData) " | FC repos : ${hrSummary.avgRestingBpm} bpm" else ""
+            "✓ Sommeil & Capteurs Watch : Suivi actif du repos et des biomarqueurs autonomes (Galaxy Watch 6$hrStr)."
         }
 
         val obsTempGluten = if (tempSummary.highPhaseDetected) {

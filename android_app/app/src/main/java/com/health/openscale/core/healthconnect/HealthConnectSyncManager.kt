@@ -18,12 +18,17 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.permission.HealthPermission
+import androidx.health.connect.client.records.BasalBodyTemperatureRecord
 import androidx.health.connect.client.records.BasalMetabolicRateRecord
 import androidx.health.connect.client.records.BodyFatRecord
 import androidx.health.connect.client.records.BodyWaterMassRecord
 import androidx.health.connect.client.records.BoneMassRecord
+import androidx.health.connect.client.records.HeartRateRecord
 import androidx.health.connect.client.records.HeightRecord
 import androidx.health.connect.client.records.LeanBodyMassRecord
+import androidx.health.connect.client.records.RestingHeartRateRecord
+import androidx.health.connect.client.records.SleepSessionRecord
+import androidx.health.connect.client.records.StepsRecord
 import androidx.health.connect.client.records.WeightRecord
 import com.health.openscale.core.data.HealthConnectSyncState
 import com.health.openscale.core.data.User
@@ -532,7 +537,8 @@ class HealthConnectSyncManager @Inject constructor(
     companion object {
         private const val MAX_RETRIES = 8
         private const val DELETE_BATCH_SIZE = 100
-        val REQUIRED_PERMISSIONS = setOf(
+
+        val WRITE_PERMISSIONS = setOf(
             HealthPermission.getWritePermission(WeightRecord::class),
             HealthPermission.getWritePermission(HeightRecord::class),
             HealthPermission.getWritePermission(BodyFatRecord::class),
@@ -541,5 +547,17 @@ class HealthConnectSyncManager @Inject constructor(
             HealthPermission.getWritePermission(BoneMassRecord::class),
             HealthPermission.getWritePermission(BasalMetabolicRateRecord::class)
         )
+
+        val READ_PERMISSIONS = setOf(
+            HealthPermission.getReadPermission(SleepSessionRecord::class),
+            HealthPermission.getReadPermission(BasalBodyTemperatureRecord::class),
+            HealthPermission.getReadPermission(HeartRateRecord::class),
+            HealthPermission.getReadPermission(RestingHeartRateRecord::class),
+            HealthPermission.getReadPermission(StepsRecord::class)
+        )
+
+        val ALL_PERMISSIONS = WRITE_PERMISSIONS + READ_PERMISSIONS
+
+        val REQUIRED_PERMISSIONS = ALL_PERMISSIONS
     }
 }
