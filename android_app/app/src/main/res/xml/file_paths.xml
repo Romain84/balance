@@ -12,4 +12,8 @@
     <cache-path
         name="camera"
         path="camera/" />
+    <!-- Medical clinical PDF reports exported for physicians and patients. -->
+    <cache-path
+        name="reports"
+        path="reports/" />
 </paths>

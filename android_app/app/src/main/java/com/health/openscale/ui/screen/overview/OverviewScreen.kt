@@ -50,14 +50,20 @@ import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.LocalHospital
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.Link
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import com.health.openscale.ui.screen.dialog.HealthCheckinSheet
+import com.health.openscale.ui.screen.dialog.MedicalReportDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -240,6 +246,41 @@ fun OverviewScreen(
     val isGoalsSectionExpanded by sharedViewModel.myGoalsExpandedOverview.collectAsState(initial = true)
     val userEvalContext        by sharedViewModel.userEvaluationContext.collectAsState()
     val currentSelectedUser   by sharedViewModel.selectedUser.collectAsState()
+
+    val activeUser = currentSelectedUser
+    val activeUserId = activeUser?.id ?: 0
+
+    val isHealthAssistantEnabled by if (activeUserId != 0) {
+        sharedViewModel.isHealthAssistantEnabled(activeUserId).collectAsState(initial = false)
+    } else {
+        remember { mutableStateOf(false) }
+    }
+
+    val isStomaEnabled by if (activeUserId != 0) {
+        sharedViewModel.isStomaTrackingEnabled(activeUserId).collectAsState(initial = true)
+    } else {
+        remember { mutableStateOf(true) }
+    }
+
+    val isEndoEnabled by if (activeUserId != 0) {
+        sharedViewModel.isEndoTrackingEnabled(activeUserId).collectAsState(initial = true)
+    } else {
+        remember { mutableStateOf(true) }
+    }
+
+    val isGlutenEnabled by if (activeUserId != 0) {
+        sharedViewModel.isGlutenTrackingEnabled(activeUserId).collectAsState(initial = true)
+    } else {
+        remember { mutableStateOf(true) }
+    }
+
+    val userCheckins by if (activeUserId != 0 && isHealthAssistantEnabled) {
+        sharedViewModel.getHealthCheckinsForUser(activeUserId).collectAsState(initial = emptyList())
+    } else {
+        remember { mutableStateOf(emptyList<com.health.openscale.core.data.HealthCheckin>()) }
+    }
+
+    val latestCheckin = userCheckins.firstOrNull()
 
     var currentSelectedMeasurementId  by rememberSaveable { mutableStateOf<Int?>(null) }
     var currentSelectedAggregatedTs   by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -562,6 +603,25 @@ fun OverviewScreen(
                                         .padding(horizontal = 16.dp, vertical = 4.dp),
                                     verticalArrangement   = Arrangement.spacedBy(12.dp),
                                 ) {
+                                    if (isHealthAssistantEnabled && !isDrillDown) {
+                                        item(key = "health_assistant_card") {
+                                            HealthAssistantCard(
+                                                latestCheckin = latestCheckin,
+                                                onCheckinClick = {
+                                                    val lastId = aggregatedItems.firstOrNull()?.enriched?.measurementWithValues?.measurement?.id
+                                                    sharedViewModel.openHealthCheckinSheet(
+                                                        userId = activeUserId,
+                                                        measurementId = lastId,
+                                                        existingCheckin = latestCheckin
+                                                    )
+                                                },
+                                                onReportClick = {
+                                                    sharedViewModel.openMedicalReportDialog()
+                                                }
+                                            )
+                                        }
+                                    }
+
                                     itemsIndexed(
                                         items = aggregatedItems,
                                         // Must not depend on isAggregated: that flag comes from the
@@ -761,6 +821,128 @@ fun OverviewScreen(
                     sharedViewModel.dismissUserGoalDialogWithContext()
                 },
             )
+        }
+    }
+
+    // ── Health Check-in Sheet & Medical Report Dialog ────────────────────────
+    val checkinSheetData by sharedViewModel.healthCheckinSheetData.collectAsState()
+    val showMedicalReport by sharedViewModel.showMedicalReportDialog.collectAsState()
+
+    if (checkinSheetData != null) {
+        val data = checkinSheetData!!
+        HealthCheckinSheet(
+            userId = data.userId,
+            measurementId = data.measurementId,
+            existingCheckin = data.existingCheckin ?: latestCheckin,
+            isStomaEnabled = isStomaEnabled,
+            isEndoEnabled = isEndoEnabled,
+            isGlutenEnabled = isGlutenEnabled,
+            onDismiss = { sharedViewModel.dismissHealthCheckinSheet() },
+            onSave = { checkin -> sharedViewModel.saveHealthCheckin(checkin) }
+        )
+    }
+
+    if (showMedicalReport && activeUser != null && activeUser.id != 0) {
+        val allMeasurementsForUser by sharedViewModel.getMeasurementsForUser(activeUserId).collectAsState(initial = emptyList())
+        MedicalReportDialog(
+            user = activeUser,
+            measurements = allMeasurementsForUser,
+            checkins = userCheckins,
+            onDismiss = { sharedViewModel.dismissMedicalReportDialog() }
+        )
+    }
+}
+
+@Composable
+fun HealthAssistantCard(
+    latestCheckin: com.health.openscale.core.data.HealthCheckin?,
+    onCheckinClick: () -> Unit,
+    onReportClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+        )
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.LocalHospital,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "Assistant Santé Clinique",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        val statusText = if (latestCheckin != null) {
+                            val pain = if (latestCheckin.painScore != null) "EVA ${latestCheckin.painScore}/10" else ""
+                            val stoma = when (latestCheckin.stomaOutput) {
+                                "HIGH_LIQUID" -> "Stomie liquide ⚠️"
+                                "SLOW" -> "Stomie ralentie"
+                                else -> "Stomie normale"
+                            }
+                            val cycle = if (latestCheckin.cycleSensation == true) " • Cycle ressenti 🌸" else ""
+                            "$pain • $stoma$cycle"
+                        } else {
+                            "Aucun check-in aujourd'hui"
+                        }
+                        Text(
+                            text = statusText,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                FilledTonalButton(
+                    onClick = onReportClick,
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Description,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Bilan PDF", style = MaterialTheme.typography.labelMedium)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Button(
+                onClick = onCheckinClick,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text(
+                    text = if (latestCheckin != null) "Modifier mon Check-in Santé" else "🩺 Faire mon Check-in Santé du Jour"
+                )
+            }
         }
     }
 }

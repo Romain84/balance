@@ -49,9 +49,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.TrendingDown
 import androidx.compose.material.icons.automirrored.filled.TrendingFlat
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import com.health.openscale.ui.screen.dialog.MedicalReportDialog
+import com.health.openscale.ui.shared.TopBarAction
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -182,6 +185,11 @@ fun InsightsScreen(
 
     val bluetoothAction      = rememberBluetoothActionButton(bluetoothViewModel, sharedViewModel, navController)
     val addMeasurementAction = rememberAddMeasurementActionButton(sharedViewModel, navController)
+    val reportAction         = TopBarAction(
+        icon = Icons.Default.Description,
+        contentDescription = "Bilan Médical PDF",
+        onClick = { sharedViewModel.openMedicalReportDialog() }
+    )
     val filterAction         = provideFilterTopBarAction(
         sharedViewModel   = sharedViewModel,
         screenContextName = INSIGHTS_SCREEN_CONTEXT,
@@ -191,7 +199,7 @@ fun InsightsScreen(
     // Use Unit as key — filterAction is recreated on every recomposition
     LaunchedEffect(Unit) {
         sharedViewModel.setTopBarTitle(title)
-        sharedViewModel.setTopBarActions(listOfNotNull(bluetoothAction, addMeasurementAction, filterAction))
+        sharedViewModel.setTopBarActions(listOfNotNull(bluetoothAction, addMeasurementAction, reportAction, filterAction))
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -321,6 +329,29 @@ fun InsightsScreen(
                 }
             }
         }
+    }
+
+    val showMedicalReport by sharedViewModel.showMedicalReportDialog.collectAsStateWithLifecycle()
+    val currentSelectedUser by sharedViewModel.selectedUser.collectAsStateWithLifecycle()
+    val activeUserId = currentSelectedUser?.id ?: 0
+    val userCheckins by if (activeUserId != 0) {
+        sharedViewModel.getHealthCheckinsForUser(activeUserId).collectAsStateWithLifecycle(initialValue = emptyList())
+    } else {
+        remember { mutableStateOf(emptyList<com.health.openscale.core.data.HealthCheckin>()) }
+    }
+    val allMeasurements by if (activeUserId != 0) {
+        sharedViewModel.getMeasurementsForUser(activeUserId).collectAsStateWithLifecycle(initialValue = emptyList())
+    } else {
+        remember { mutableStateOf(emptyList()) }
+    }
+
+    if (showMedicalReport && currentSelectedUser != null && currentSelectedUser!!.id != 0) {
+        MedicalReportDialog(
+            user = currentSelectedUser!!,
+            measurements = allMeasurements,
+            checkins = userCheckins,
+            onDismiss = { sharedViewModel.dismissMedicalReportDialog() }
+        )
     }
 }
 

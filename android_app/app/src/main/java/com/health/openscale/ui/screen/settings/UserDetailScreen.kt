@@ -39,8 +39,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircleOutline
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.LocalHospital
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.UnfoldMore
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenuItem
@@ -48,6 +51,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
@@ -58,6 +62,13 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -513,6 +524,136 @@ fun UserDetailScreen(
                     .matchParentSize()
                     .clickable { showDatePicker = true }
             )
+        }
+
+        if (isEdit) {
+            var healthAssistantEnabled by remember { mutableStateOf(false) }
+            var stomaEnabled by remember { mutableStateOf(true) }
+            var endoEnabled by remember { mutableStateOf(true) }
+            var glutenEnabled by remember { mutableStateOf(true) }
+
+            val initialHealthAssistant by sharedViewModel.isHealthAssistantEnabled(userId).collectAsState(initial = false)
+            val initialStoma by sharedViewModel.isStomaTrackingEnabled(userId).collectAsState(initial = true)
+            val initialEndo by sharedViewModel.isEndoTrackingEnabled(userId).collectAsState(initial = true)
+            val initialGluten by sharedViewModel.isGlutenTrackingEnabled(userId).collectAsState(initial = true)
+
+            LaunchedEffect(initialHealthAssistant, initialStoma, initialEndo, initialGluten) {
+                healthAssistantEnabled = initialHealthAssistant
+                stomaEnabled = initialStoma
+                endoEnabled = initialEndo
+                glutenEnabled = initialGluten
+            }
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                )
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.LocalHospital,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Assistant Santé Clinique",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Check-in santé & Bilan PDF pour ce profil",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = healthAssistantEnabled,
+                            onCheckedChange = {
+                                healthAssistantEnabled = it
+                                sharedViewModel.setHealthAssistantEnabled(userId, it)
+                            }
+                        )
+                    }
+
+                    if (healthAssistantEnabled) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val next = !stomaEnabled
+                                    stomaEnabled = next
+                                    sharedViewModel.setStomaTrackingEnabled(userId, next)
+                                }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Suivi Stomie & Équilibre hydrique", style = MaterialTheme.typography.bodyMedium)
+                            Switch(checked = stomaEnabled, onCheckedChange = {
+                                stomaEnabled = it
+                                sharedViewModel.setStomaTrackingEnabled(userId, it)
+                            })
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val next = !endoEnabled
+                                    endoEnabled = next
+                                    sharedViewModel.setEndoTrackingEnabled(userId, next)
+                                }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Suivi Endométriose & Cycle hormonal", style = MaterialTheme.typography.bodyMedium)
+                            Switch(checked = endoEnabled, onCheckedChange = {
+                                endoEnabled = it
+                                sharedViewModel.setEndoTrackingEnabled(userId, it)
+                            })
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val next = !glutenEnabled
+                                    glutenEnabled = next
+                                    sharedViewModel.setGlutenTrackingEnabled(userId, next)
+                                }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Suivi Digestif & Éviction Sans Gluten", style = MaterialTheme.typography.bodyMedium)
+                            Switch(checked = glutenEnabled, onCheckedChange = {
+                                glutenEnabled = it
+                                sharedViewModel.setGlutenTrackingEnabled(userId, it)
+                            })
+                        }
+                    }
+                }
+            }
         }
 
         // My Goals

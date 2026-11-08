@@ -46,6 +46,7 @@ import com.health.openscale.core.model.MeasurementWithValues
 import com.health.openscale.core.model.UserEvaluationContext
 import com.health.openscale.core.usecase.MeasurementDemoUseCase
 import com.health.openscale.core.usecase.GoalProgress
+import com.health.openscale.core.usecase.HealthCheckinUseCases
 import com.health.openscale.core.usecase.MeasurementCrudUseCases
 import com.health.openscale.core.usecase.SyncUseCases
 import com.health.openscale.core.utils.LogManager
@@ -67,6 +68,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -106,6 +108,7 @@ class SharedViewModel @Inject constructor(
     private val dataManagementFacade: DataManagementFacade,
     private val settingsFacade: SettingsFacade,
     private val sync: SyncUseCases,
+    private val healthCheckinUseCases: HealthCheckinUseCases,
     @param:ApplicationContext private val appContext: Context,
 ) : ViewModel(), SettingsFacade by settingsFacade {
 
@@ -119,6 +122,14 @@ class SharedViewModel @Inject constructor(
                     actionLabelResId = R.string.sync_app_open_action,
                     onAction = { sync.openSyncApp(pkg) }
                 )
+            }
+        }
+        viewModelScope.launch {
+            measurementFacade.latestSavedMeasurement.collect { (userId, measurementId) ->
+                val isEnabled = healthCheckinUseCases.isHealthAssistantEnabled(userId).firstOrNull() ?: false
+                if (isEnabled) {
+                    _healthCheckinSheetData.value = HealthCheckinSheetData(userId, measurementId)
+                }
             }
         }
     }
@@ -1052,4 +1063,84 @@ class SharedViewModel @Inject constructor(
             }
         }
     }
+
+    // -------------------------------------------------------------------------
+    // Health Assistant & Clinical Check-in
+    // -------------------------------------------------------------------------
+
+    data class HealthCheckinSheetData(
+        val userId: Int,
+        val measurementId: Int? = null,
+        val existingCheckin: com.health.openscale.core.data.HealthCheckin? = null
+    )
+
+    private val _healthCheckinSheetData = MutableStateFlow<HealthCheckinSheetData?>(null)
+    val healthCheckinSheetData: StateFlow<HealthCheckinSheetData?> = _healthCheckinSheetData.asStateFlow()
+
+    fun openHealthCheckinSheet(userId: Int, measurementId: Int? = null, existingCheckin: com.health.openscale.core.data.HealthCheckin? = null) {
+        _healthCheckinSheetData.value = HealthCheckinSheetData(userId, measurementId, existingCheckin)
+    }
+
+    fun dismissHealthCheckinSheet() {
+        _healthCheckinSheetData.value = null
+    }
+
+    private val _showMedicalReportDialog = MutableStateFlow(false)
+    val showMedicalReportDialog: StateFlow<Boolean> = _showMedicalReportDialog.asStateFlow()
+
+    fun openMedicalReportDialog() {
+        _showMedicalReportDialog.value = true
+    }
+
+    fun dismissMedicalReportDialog() {
+        _showMedicalReportDialog.value = false
+    }
+
+    fun isHealthAssistantEnabled(userId: Int): Flow<Boolean> =
+        healthCheckinUseCases.isHealthAssistantEnabled(userId)
+
+    fun setHealthAssistantEnabled(userId: Int, enabled: Boolean) {
+        viewModelScope.launch { healthCheckinUseCases.setHealthAssistantEnabled(userId, enabled) }
+    }
+
+    fun isStomaTrackingEnabled(userId: Int): Flow<Boolean> =
+        healthCheckinUseCases.isStomaTrackingEnabled(userId)
+
+    fun setStomaTrackingEnabled(userId: Int, enabled: Boolean) {
+        viewModelScope.launch { healthCheckinUseCases.setStomaTrackingEnabled(userId, enabled) }
+    }
+
+    fun isEndoTrackingEnabled(userId: Int): Flow<Boolean> =
+        healthCheckinUseCases.isEndoTrackingEnabled(userId)
+
+    fun setEndoTrackingEnabled(userId: Int, enabled: Boolean) {
+        viewModelScope.launch { healthCheckinUseCases.setEndoTrackingEnabled(userId, enabled) }
+    }
+
+    fun isGlutenTrackingEnabled(userId: Int): Flow<Boolean> =
+        healthCheckinUseCases.isGlutenTrackingEnabled(userId)
+
+    fun setGlutenTrackingEnabled(userId: Int, enabled: Boolean) {
+        viewModelScope.launch { healthCheckinUseCases.setGlutenTrackingEnabled(userId, enabled) }
+    }
+
+    fun saveHealthCheckin(checkin: com.health.openscale.core.data.HealthCheckin) {
+        viewModelScope.launch(Dispatchers.IO) {
+            healthCheckinUseCases.saveCheckin(checkin)
+            _healthCheckinSheetData.value = null
+            showSnackbar(message = "Check-in santé enregistré ✓")
+        }
+    }
+
+    fun getHealthCheckinsForUser(userId: Int): Flow<List<com.health.openscale.core.data.HealthCheckin>> =
+        healthCheckinUseCases.getCheckinsForUser(userId)
+
+    fun getMeasurementsForUser(userId: Int): Flow<List<MeasurementWithValues>> =
+        measurementFacade.getMeasurementsForUser(userId)
+
+    suspend fun getHealthCheckinsBetweenOnce(userId: Int, start: Long, end: Long): List<com.health.openscale.core.data.HealthCheckin> =
+        healthCheckinUseCases.getCheckinsBetweenOnce(userId, start, end)
+
+    fun observeCheckinForMeasurement(measurementId: Int): Flow<com.health.openscale.core.data.HealthCheckin?> =
+        healthCheckinUseCases.observeCheckinForMeasurement(measurementId)
 }

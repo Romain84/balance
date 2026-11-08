@@ -43,6 +43,9 @@ import com.health.openscale.core.usecase.MeasurementTypeCrudUseCases
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
@@ -81,6 +84,9 @@ class MeasurementFacade @Inject constructor(
     ) {
 
     private var pendingReferenceUser: User? = null
+
+    private val _latestSavedMeasurement = MutableSharedFlow<Pair<Int, Int>>(replay = 0, extraBufferCapacity = 8)
+    val latestSavedMeasurement: SharedFlow<Pair<Int, Int>> = _latestSavedMeasurement.asSharedFlow()
 
     fun getMeasurementsForUser(userId: Int): Flow<List<MeasurementWithValues>> =
         query.getMeasurementsForUser(userId)
@@ -256,17 +262,23 @@ class MeasurementFacade @Inject constructor(
         val ref = pendingReferenceUser
         if (ref != null) {
             val finalValues = transformation.applyAssistedWeighing(measurement, values, ref)
-            crud.saveMeasurement(
+            val result = crud.saveMeasurement(
                 measurement,
                 transformation.applyValueInheritance(measurement, finalValues)
             )
+            result.getOrNull()?.takeIf { it > 0 }?.let { newId ->
+                _latestSavedMeasurement.tryEmit(Pair(measurement.userId, newId))
+            }
         } else {
             val finalMeasurement = transformation.applySmartUserAssignment(measurement, values)
             if (finalMeasurement != null) {
-                crud.saveMeasurement(
+                val result = crud.saveMeasurement(
                     finalMeasurement,
                     transformation.applyValueInheritance(finalMeasurement, values)
                 )
+                result.getOrNull()?.takeIf { it > 0 }?.let { newId ->
+                    _latestSavedMeasurement.tryEmit(Pair(finalMeasurement.userId, newId))
+                }
             }
         }
     }
@@ -293,7 +305,13 @@ class MeasurementFacade @Inject constructor(
     suspend fun saveMeasurement(
         measurement: Measurement,
         values: List<MeasurementValue>,
-    ) = crud.saveMeasurement(measurement, values)
+    ): Result<Int> {
+        val res = crud.saveMeasurement(measurement, values)
+        res.getOrNull()?.takeIf { it > 0 }?.let { newId ->
+            _latestSavedMeasurement.tryEmit(Pair(measurement.userId, newId))
+        }
+        return res
+    }
 
     suspend fun deleteMeasurement(measurement: Measurement) =
         crud.deleteMeasurement(measurement)

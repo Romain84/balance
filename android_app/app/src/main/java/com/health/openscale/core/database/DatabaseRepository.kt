@@ -44,7 +44,8 @@ class DatabaseRepository @Inject constructor(
     private val measurementDao: MeasurementDao,
     private val measurementTypeDao: MeasurementTypeDao,
     private val measurementValueDao: MeasurementValueDao,
-    private val derivedValuesCalculator: DerivedValuesCalculator
+    private val derivedValuesCalculator: DerivedValuesCalculator,
+    private val healthCheckinDao: HealthCheckinDao
 ) {
 
     private val TAG = "DatabaseRepository"
@@ -261,6 +262,17 @@ class DatabaseRepository @Inject constructor(
         measurementTypeDao.update(type)
     }
 
+
+    // --- Health Check-in Operations ---
+    suspend fun insertHealthCheckin(checkin: com.health.openscale.core.data.HealthCheckin): Long = healthCheckinDao.insert(checkin)
+    suspend fun updateHealthCheckin(checkin: com.health.openscale.core.data.HealthCheckin) = healthCheckinDao.update(checkin)
+    suspend fun deleteHealthCheckin(checkin: com.health.openscale.core.data.HealthCheckin) = healthCheckinDao.delete(checkin)
+    fun getHealthCheckinsForUser(userId: Int): Flow<List<com.health.openscale.core.data.HealthCheckin>> = healthCheckinDao.getCheckinsForUser(userId)
+    fun getHealthCheckinsBetween(userId: Int, start: Long, end: Long): Flow<List<com.health.openscale.core.data.HealthCheckin>> = healthCheckinDao.getCheckinsBetween(userId, start, end)
+    suspend fun getHealthCheckinsBetweenOnce(userId: Int, start: Long, end: Long): List<com.health.openscale.core.data.HealthCheckin> = healthCheckinDao.getCheckinsBetweenOnce(userId, start, end)
+    suspend fun getHealthCheckinForMeasurement(measurementId: Int): com.health.openscale.core.data.HealthCheckin? = healthCheckinDao.getCheckinForMeasurement(measurementId)
+    fun observeHealthCheckinForMeasurement(measurementId: Int): Flow<com.health.openscale.core.data.HealthCheckin?> = healthCheckinDao.observeCheckinForMeasurement(measurementId)
+    suspend fun getLatestHealthCheckin(userId: Int): com.health.openscale.core.data.HealthCheckin? = healthCheckinDao.getLatestCheckin(userId)
 
     // --- Derived Values Calculation (delegated to DerivedValuesCalculator) ---
 

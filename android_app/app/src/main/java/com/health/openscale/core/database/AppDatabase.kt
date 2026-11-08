@@ -28,6 +28,7 @@ import com.health.openscale.core.data.Measurement
 import com.health.openscale.core.data.MeasurementType
 import com.health.openscale.core.data.MeasurementValue
 import com.health.openscale.core.data.HealthConnectSyncState
+import com.health.openscale.core.data.HealthCheckin
 import com.health.openscale.core.data.User
 import com.health.openscale.core.data.UserIcon
 import com.health.openscale.core.data.UserGoals
@@ -46,7 +47,7 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext ctx: Context): AppDatabase =
         Room.databaseBuilder(ctx, AppDatabase::class.java, AppDatabase.Companion.DATABASE_NAME)
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20)
             .build()
 
     @Provides
@@ -61,6 +62,8 @@ object DatabaseModule {
     fun provideMeasurementTypeDao(db: AppDatabase): MeasurementTypeDao = db.measurementTypeDao()
     @Provides
     fun provideHealthConnectSyncDao(db: AppDatabase): HealthConnectSyncDao = db.healthConnectSyncDao()
+    @Provides
+    fun provideHealthCheckinDao(db: AppDatabase): HealthCheckinDao = db.healthCheckinDao()
 }
 
 /**
@@ -75,8 +78,9 @@ object DatabaseModule {
         MeasurementValue::class,
         MeasurementType::class,
         HealthConnectSyncState::class,
+        HealthCheckin::class,
     ],
-    version = 19,
+    version = 20,
     exportSchema = true
 )
 @TypeConverters(DatabaseConverters::class)
@@ -88,6 +92,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun measurementValueDao(): MeasurementValueDao
     abstract fun measurementTypeDao(): MeasurementTypeDao
     abstract fun healthConnectSyncDao(): HealthConnectSyncDao
+    abstract fun healthCheckinDao(): HealthCheckinDao
 
     companion object {
         const val DATABASE_NAME = "openScale.db"
@@ -890,5 +895,31 @@ val MIGRATION_18_19 = object : Migration(18, 19) {
                 "ON UPDATE NO ACTION ON DELETE CASCADE)"
         )
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_HealthConnectSyncState_status` ON `HealthConnectSyncState` (`status`)")
+    }
+}
+
+/** Adds the HealthCheckin table for clinical tracking (Stoma, Endometriosis, Gluten/Digestion). */
+val MIGRATION_19_20 = object : Migration(19, 20) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `HealthCheckin` (" +
+                "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                "`userId` INTEGER NOT NULL, " +
+                "`timestamp` INTEGER NOT NULL, " +
+                "`measurementId` INTEGER, " +
+                "`painScore` INTEGER, " +
+                "`painLocations` TEXT, " +
+                "`cycleSensation` INTEGER, " +
+                "`stomaOutput` TEXT, " +
+                "`stomaIncident` INTEGER, " +
+                "`bloatingLevel` TEXT, " +
+                "`glutenExposure` TEXT, " +
+                "`notes` TEXT, " +
+                "FOREIGN KEY(`userId`) REFERENCES `User`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE, " +
+                "FOREIGN KEY(`measurementId`) REFERENCES `Measurement`(`id`) ON UPDATE NO ACTION ON DELETE SET_NULL)"
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_HealthCheckin_userId` ON `HealthCheckin` (`userId`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_HealthCheckin_measurementId` ON `HealthCheckin` (`measurementId`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_HealthCheckin_timestamp` ON `HealthCheckin` (`timestamp`)")
     }
 }

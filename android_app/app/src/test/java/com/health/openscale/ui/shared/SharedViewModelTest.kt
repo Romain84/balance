@@ -90,8 +90,9 @@ class SharedViewModelTest {
         )
         val facades = RoomTestSupport.facadesFor(app, repo, settings)
         val sync = SyncUseCases(app, MeasurementTypeCrudUseCases(repo, ApplicationProvider.getApplicationContext()))
+        val healthCheckin = com.health.openscale.core.usecase.HealthCheckinUseCases(repo, settings)
         vm = SharedViewModel(
-            facades.userFacade, facades.measurementFacade, facades.dataManagementFacade, settings, sync, app,
+            facades.userFacade, facades.measurementFacade, facades.dataManagementFacade, settings, sync, healthCheckin, app,
         )
     }
 
