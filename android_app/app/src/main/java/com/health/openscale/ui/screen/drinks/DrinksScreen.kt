@@ -205,7 +205,7 @@ fun DrinksScreen(
                             onClick = {
                                 stomaRepo.addWater(250)
                                 if (isLockscreenNotifEnabled) {
-                                    StomaNotificationManager.showTrackingNotification(context, stomaRepo.getTodaySummary())
+                                    StomaNotificationManager.showOrUpdateNotification(context, stomaRepo.getTodaySummary())
                                 }
                                 Toast.makeText(context, "+ 250 ml d'eau enregistré 💧", Toast.LENGTH_SHORT).show()
                             },
@@ -220,7 +220,7 @@ fun DrinksScreen(
                             onClick = {
                                 stomaRepo.addWater(500)
                                 if (isLockscreenNotifEnabled) {
-                                    StomaNotificationManager.showTrackingNotification(context, stomaRepo.getTodaySummary())
+                                    StomaNotificationManager.showOrUpdateNotification(context, stomaRepo.getTodaySummary())
                                 }
                                 Toast.makeText(context, "+ 500 ml d'eau enregistré 🥤", Toast.LENGTH_SHORT).show()
                             },
@@ -289,7 +289,7 @@ fun DrinksScreen(
                             isLockscreenNotifEnabled = enabled
                             stomaRepo.setNotificationEnabled(enabled)
                             if (enabled) {
-                                StomaNotificationManager.showTrackingNotification(context, stomaRepo.getTodaySummary())
+                                StomaNotificationManager.showOrUpdateNotification(context, stomaRepo.getTodaySummary())
                             } else {
                                 StomaNotificationManager.cancelNotification(context)
                             }
@@ -378,7 +378,7 @@ fun DrinksScreen(
                             onClick = {
                                 stomaRepo.deleteEvent(ev.id)
                                 if (isLockscreenNotifEnabled) {
-                                    StomaNotificationManager.showTrackingNotification(context, stomaRepo.getTodaySummary())
+                                    StomaNotificationManager.showOrUpdateNotification(context, stomaRepo.getTodaySummary())
                                 }
                                 Toast.makeText(context, "Boisson supprimée", Toast.LENGTH_SHORT).show()
                             },
@@ -424,7 +424,7 @@ fun DrinksScreen(
                         if (amount > 0) {
                             stomaRepo.addWater(amount)
                             if (isLockscreenNotifEnabled) {
-                                StomaNotificationManager.showTrackingNotification(context, stomaRepo.getTodaySummary())
+                                StomaNotificationManager.showOrUpdateNotification(context, stomaRepo.getTodaySummary())
                             }
                             Toast.makeText(context, "+ $amount ml d'eau enregistré 💧", Toast.LENGTH_SHORT).show()
                         }

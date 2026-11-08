@@ -489,11 +489,13 @@ fun OverviewScreen(
                             if (topId != null) {
                                 if (lastSeenTopMeasurementId != null && topId != lastSeenTopMeasurementId) {
                                     // New weigh-in detected! Prompt clinical check-in
-                                    sharedViewModel.openHealthCheckinSheet(
-                                        userId = selectedUserId,
-                                        measurementId = topId,
-                                        existingCheckin = null
-                                    )
+                                    selectedUserId?.let { uid ->
+                                        sharedViewModel.openHealthCheckinSheet(
+                                            userId = uid,
+                                            measurementId = topId,
+                                            existingCheckin = null
+                                        )
+                                    }
                                 }
                                 lastSeenTopMeasurementId = topId
                             }

@@ -443,7 +443,7 @@ fun AppNavigation(sharedViewModel: SharedViewModel) {
             onLogPouchChange = {
                 stomaRepo.logPouchChange()
                 if (stomaRepo.isNotificationEnabled()) {
-                    StomaNotificationManager.showTrackingNotification(context, stomaRepo.getTodaySummary())
+                    StomaNotificationManager.showOrUpdateNotification(context, stomaRepo.getTodaySummary())
                 }
                 scope.launch {
                     snackbarHostState.showSnackbar("Changement de poche enregistré ✓")
@@ -452,7 +452,7 @@ fun AppNavigation(sharedViewModel: SharedViewModel) {
             onLogSupportChange = {
                 stomaRepo.logSupportChange()
                 if (stomaRepo.isNotificationEnabled()) {
-                    StomaNotificationManager.showTrackingNotification(context, stomaRepo.getTodaySummary())
+                    StomaNotificationManager.showOrUpdateNotification(context, stomaRepo.getTodaySummary())
                 }
                 scope.launch {
                     snackbarHostState.showSnackbar("Changement complet du support enregistré ✓")
@@ -461,7 +461,7 @@ fun AppNavigation(sharedViewModel: SharedViewModel) {
             onAddWater250 = {
                 stomaRepo.addWater(250)
                 if (stomaRepo.isNotificationEnabled()) {
-                    StomaNotificationManager.showTrackingNotification(context, stomaRepo.getTodaySummary())
+                    StomaNotificationManager.showOrUpdateNotification(context, stomaRepo.getTodaySummary())
                 }
                 scope.launch {
                     snackbarHostState.showSnackbar("+ 250 ml d'eau enregistré 💧")
@@ -470,7 +470,7 @@ fun AppNavigation(sharedViewModel: SharedViewModel) {
             onAddWater500 = {
                 stomaRepo.addWater(500)
                 if (stomaRepo.isNotificationEnabled()) {
-                    StomaNotificationManager.showTrackingNotification(context, stomaRepo.getTodaySummary())
+                    StomaNotificationManager.showOrUpdateNotification(context, stomaRepo.getTodaySummary())
                 }
                 scope.launch {
                     snackbarHostState.showSnackbar("+ 500 ml d'eau enregistré 🥤")
