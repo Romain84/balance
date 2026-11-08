@@ -37,11 +37,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Menu
@@ -50,6 +53,7 @@ import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -57,6 +61,9 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.NavigationRail
@@ -67,12 +74,14 @@ import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -150,6 +159,15 @@ fun AppNavigation(sharedViewModel: SharedViewModel) {
         Routes.GRAPH,
         Routes.TABLE,
         Routes.STATISTICS,
+        Routes.INSIGHTS,
+        Routes.SETTINGS
+    )
+
+    // The primary routes displayed in the bottom navigation bar for quick 1-tap thumb access
+    val bottomBarRoutes = listOf(
+        Routes.OVERVIEW,
+        Routes.GRAPH,
+        Routes.TABLE,
         Routes.INSIGHTS,
         Routes.SETTINGS
     )
@@ -446,6 +464,44 @@ fun AppNavigation(sharedViewModel: SharedViewModel) {
                             }
                         }
                     )
+                },
+                bottomBar = {
+                    if (!useNavigationRail && currentRoute in mainRoutes) {
+                        AppBottomNavigationBar(
+                            bottomRoutes = bottomBarRoutes,
+                            activeMainRoute = activeMainRoute,
+                            onNavigate = navigateToMainRoute
+                        )
+                    }
+                },
+                floatingActionButton = {
+                    if (!isInContextualSelectionMode && (currentRoute == Routes.OVERVIEW || currentRoute == Routes.TABLE)) {
+                        FloatingActionButton(
+                            onClick = {
+                                if (selectedUser != null && selectedUser?.id != 0) {
+                                    navController.navigate(
+                                        Routes.measurementDetail(
+                                            measurementId = null,
+                                            userId = selectedUser?.id
+                                        )
+                                    )
+                                } else {
+                                    sharedViewModel.showSnackbar(
+                                        message = resources.getString(R.string.toast_select_user_first),
+                                        duration = SnackbarDuration.Short
+                                    )
+                                }
+                            },
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = stringResource(R.string.title_new_measurement)
+                            )
+                        }
+                    }
                 }
             ) { innerPadding ->
                 AppNavHost(
@@ -509,16 +565,60 @@ private fun AppNavigationRail(
 }
 
 /**
- * Composable function for a dropdown menu in the TopAppBar to switch users or navigate to user management.
- * This provides a dedicated UI element for user selection and management access.
+ * Modern Material 3 navigation bar for mobile portrait viewports.
+ * Gives immediate 1-tap thumb access to the primary screens.
+ */
+@Composable
+private fun AppBottomNavigationBar(
+    bottomRoutes: List<String>,
+    activeMainRoute: String?,
+    onNavigate: (String) -> Unit
+) {
+    NavigationBar(
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        tonalElevation = 3.dp
+    ) {
+        bottomRoutes.forEach { route ->
+            val isSelected = activeMainRoute == route
+            val titleText = mainRouteTitle(route)
+            NavigationBarItem(
+                selected = isSelected,
+                onClick = { onNavigate(route) },
+                icon = {
+                    Icon(
+                        imageVector = getIconForRoute(route),
+                        contentDescription = titleText
+                    )
+                },
+                label = {
+                    Text(
+                        text = titleText,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                },
+                colors = NavigationBarItemDefaults.colors(
+                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                    selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            )
+        }
+    }
+}
+
+/**
+ * Composable function for an interactive profile pill in the TopAppBar to display
+ * the active user and provide a quick dropdown menu to switch users or manage profiles.
  *
  * @param users List of available [User]s to display in the dropdown.
  * @param selectedUser The currently selected [User], or null if no user is selected.
- *                     This is used to highlight the current user in the list.
- * @param onUserSelected Callback invoked with the user's ID when a user is selected from the dropdown.
- * @param onManageUsersClicked Callback invoked when the "Manage Users" option is clicked,
- *                             typically to navigate to a user management screen.
- * @param modifier Optional [Modifier] for this composable, allowing for custom styling or layout.
+ * @param onUserSelected Callback invoked with the user's ID when a user is selected.
+ * @param onManageUsersClicked Callback invoked when "Manage Users" is clicked.
+ * @param modifier Optional [Modifier] for this composable.
  */
 @Composable
 fun UserDropdownAsAction(
@@ -528,63 +628,118 @@ fun UserDropdownAsAction(
     onManageUsersClicked: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var expanded by remember { mutableStateOf(false) } // State to control dropdown visibility.
+    var expanded by remember { mutableStateOf(false) }
 
     if (users.isEmpty()) {
-        return // Do not show the dropdown if there are no users.
+        return
     }
 
-    Box(modifier = modifier) { // Box is used to anchor the DropdownMenu.
-        IconButton(onClick = { expanded = true }) {
-            val iconResource = selectedUser?.icon?.resource ?: IconResource.VectorResource(Icons.Filled.AccountCircle)
-
-            when (iconResource) {
-                is IconResource.VectorResource -> {
-                    Icon(
-                        imageVector = iconResource.imageVector,
-                        contentDescription = null
-                    )
-                }
-                is IconResource.PainterResource -> {
+    Box(modifier = modifier) {
+        Surface(
+            onClick = { expanded = true },
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            modifier = Modifier.padding(end = 4.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(start = 6.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                val iconResource = selectedUser?.icon?.resource
+                if (iconResource is IconResource.PainterResource) {
                     Image(
                         painter = painterResource(id = iconResource.id),
-                        contentDescription = null
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp).clip(CircleShape)
                     )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primaryContainer),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = selectedUser?.name?.take(1)?.uppercase() ?: "U",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
                 }
+                Text(
+                    text = selectedUser?.name ?: "",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Icon(
+                    imageVector = Icons.Default.ArrowDropDown,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
         DropdownMenu(
             expanded = expanded,
-            onDismissRequest = { expanded = false } // Close dropdown when clicked outside.
+            onDismissRequest = { expanded = false }
         ) {
             users.forEach { user ->
                 DropdownMenuItem(
-                    text = { Text(user.name) },
+                    text = {
+                        Text(
+                            user.name,
+                            fontWeight = if (user.id == selectedUser?.id) FontWeight.Bold else FontWeight.Normal
+                        )
+                    },
                     onClick = {
                         onUserSelected(user.id)
-                        expanded = false // Close dropdown after selection.
+                        expanded = false
                     },
-                    leadingIcon = { // Show a checkmark next to the currently selected user.
+                    leadingIcon = {
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (user.id == selectedUser?.id) MaterialTheme.colorScheme.primaryContainer
+                                    else MaterialTheme.colorScheme.surfaceContainerHigh
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = user.name.take(1).uppercase(),
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = if (user.id == selectedUser?.id) MaterialTheme.colorScheme.onPrimaryContainer
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    },
+                    trailingIcon = {
                         if (user.id == selectedUser?.id) {
                             Icon(
                                 imageVector = Icons.Filled.Check,
-                                contentDescription = stringResource(R.string.content_desc_selected_user_indicator)
+                                contentDescription = stringResource(R.string.content_desc_selected_user_indicator),
+                                tint = MaterialTheme.colorScheme.primary
                             )
                         }
                     }
                 )
             }
-            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp)) // Visual separator.
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.manage_users)) },
                 onClick = {
                     onManageUsersClicked()
-                    expanded = false // Close dropdown after selection.
+                    expanded = false
                 },
-                leadingIcon = { // Icon for the "Manage Users" option.
+                leadingIcon = {
                     Icon(
                         imageVector = Icons.Filled.Settings,
-                        contentDescription = null // Decorative icon, as text already describes the action.
+                        contentDescription = null
                     )
                 }
             )

@@ -17,6 +17,9 @@
  */
 package com.health.openscale.ui.navigation
 
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
 import androidx.compose.material3.adaptive.layout.AnimatedPane
@@ -93,6 +96,10 @@ fun AppNavHost(
         NavHost(
             navController = navController,
             startDestination = Routes.OVERVIEW,
+            enterTransition = { fadeIn(animationSpec = tween(220)) },
+            exitTransition = { fadeOut(animationSpec = tween(180)) },
+            popEnterTransition = { fadeIn(animationSpec = tween(220)) },
+            popExitTransition = { fadeOut(animationSpec = tween(180)) },
             modifier = Modifier
                 .padding(innerPadding) // Apply padding from Scaffold.
                 .weight(1f)      // NavHost takes the remaining space in the Column.
