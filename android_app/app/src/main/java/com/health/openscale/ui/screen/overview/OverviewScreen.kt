@@ -65,6 +65,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.ShoppingCart
 import com.health.openscale.ui.screen.dialog.HealthCheckinSheet
 import com.health.openscale.ui.screen.dialog.MedicalReportDialog
+import com.health.openscale.core.stoma.StomaNotificationManager
+import com.health.openscale.core.stoma.StomaTrackingRepository
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
@@ -204,6 +206,46 @@ fun OverviewScreen(
     // Hoisted out of the item scope: the same rule the period bounds behind each row were
     // built from, so label and drill-down range always agree.
     val weekFields   = remember { LocaleUtils.systemWeekFields() }
+
+    val stomaRepo = remember { StomaTrackingRepository(context) }
+    val stomaSummary by stomaRepo.todaySummary.collectAsState()
+    var isLockscreenNotifEnabled by remember { mutableStateOf(stomaRepo.isNotificationEnabled()) }
+
+    val onAddWater: (Int) -> Unit = remember(stomaRepo, isLockscreenNotifEnabled) {
+        { amount ->
+            stomaRepo.addWater(amount)
+            if (isLockscreenNotifEnabled) {
+                StomaNotificationManager.showOrUpdateNotification(context, stomaRepo.getTodaySummary())
+            }
+        }
+    }
+    val onLogPouch: () -> Unit = remember(stomaRepo, isLockscreenNotifEnabled) {
+        {
+            stomaRepo.logPouchChange()
+            if (isLockscreenNotifEnabled) {
+                StomaNotificationManager.showOrUpdateNotification(context, stomaRepo.getTodaySummary())
+            }
+        }
+    }
+    val onLogSupport: () -> Unit = remember(stomaRepo, isLockscreenNotifEnabled) {
+        {
+            stomaRepo.logSupportChange()
+            if (isLockscreenNotifEnabled) {
+                StomaNotificationManager.showOrUpdateNotification(context, stomaRepo.getTodaySummary())
+            }
+        }
+    }
+    val onToggleLockscreenNotif: (Boolean) -> Unit = remember(stomaRepo) {
+        { enabled ->
+            isLockscreenNotifEnabled = enabled
+            stomaRepo.setNotificationEnabled(enabled)
+            if (enabled) {
+                StomaNotificationManager.showOrUpdateNotification(context, stomaRepo.getTodaySummary())
+            } else {
+                StomaNotificationManager.cancelNotification(context)
+            }
+        }
+    }
 
     // ── Data ──────────────────────────────────────────────────────────────────
     // Normal mode: screenFlow — cached, reacts to user/time-range/aggregation changes.
@@ -430,6 +472,16 @@ fun OverviewScreen(
                                         },
                                         isStomaEnabled = isStomaEnabled
                                     )
+                                    if (isStomaEnabled) {
+                                        StomaHydrationLiveCard(
+                                            summary = stomaSummary,
+                                            isNotificationEnabled = isLockscreenNotifEnabled,
+                                            onAddWater = onAddWater,
+                                            onLogPouch = onLogPouch,
+                                            onLogSupport = onLogSupport,
+                                            onToggleNotification = onToggleLockscreenNotif
+                                        )
+                                    }
                                 }
                                 Box(
                                     modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -653,6 +705,18 @@ fun OverviewScreen(
                                                 },
                                                 isStomaEnabled = isStomaEnabled
                                             )
+                                        }
+                                        if (isStomaEnabled) {
+                                            item(key = "stoma_hydration_live_card") {
+                                                StomaHydrationLiveCard(
+                                                    summary = stomaSummary,
+                                                    isNotificationEnabled = isLockscreenNotifEnabled,
+                                                    onAddWater = onAddWater,
+                                                    onLogPouch = onLogPouch,
+                                                    onLogSupport = onLogSupport,
+                                                    onToggleNotification = onToggleLockscreenNotif
+                                                )
+                                            }
                                         }
                                     }
 

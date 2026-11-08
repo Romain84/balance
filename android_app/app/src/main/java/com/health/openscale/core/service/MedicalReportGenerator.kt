@@ -91,6 +91,9 @@ object MedicalReportGenerator {
         val endoBellyDays = filteredCheckins.count { it.bloatingLevel == "ENDO_BELLY" }
         val glutenSuspicions = filteredCheckins.count { it.glutenExposure in listOf("SUSPECTED", "CONFIRMED") }
 
+        val stomaRepo = com.health.openscale.core.stoma.StomaTrackingRepository(context)
+        val stomaSummary = stomaRepo.getTodaySummary()
+
         // --- PAGE 1: Clinical Header, KPIs, Chart & Analysis ---
         val pageInfo1 = PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, 1).create()
         val page1 = pdfDocument.startPage(pageInfo1)
@@ -119,7 +122,8 @@ object MedicalReportGenerator {
             measurements = filteredMeasurements,
             checkins = filteredCheckins,
             sleepSummary = sleepSummary,
-            tempSummary = tempSummary
+            tempSummary = tempSummary,
+            stomaSummary = stomaSummary
         )
         pdfDocument.finishPage(page1)
 
@@ -177,7 +181,8 @@ object MedicalReportGenerator {
         measurements: List<MeasurementWithValues>,
         checkins: List<HealthCheckin>,
         sleepSummary: ClinicalSleepSummary,
-        tempSummary: ClinicalTempSummary
+        tempSummary: ClinicalTempSummary,
+        stomaSummary: com.health.openscale.core.stoma.DailyStomaSummary? = null
     ) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
@@ -241,13 +246,16 @@ object MedicalReportGenerator {
         )
 
         // Row 1 - Card 2: Hydratation & Stomie
+        val stomaWaterText = if (stomaSummary != null && stomaSummary.totalWaterMl > 0) "${String.format(Locale.FRANCE, "%.2f", stomaSummary.totalWaterMl / 1000f)} L bu/j" else "Suivi actif"
+        val supportInfo = if (stomaSummary != null && stomaSummary.lastSupportChangeTimestamp != null) "Support: ${stomaSummary.daysSinceLastSupportChange}j" else "Incidents: $stomaIncidents"
+        val card2BadgeColor = if (highLiquidStomaDays > 2 || stomaIncidents > 2 || (stomaSummary?.clinicalStatus == com.health.openscale.core.stoma.ClinicalHydrationStatus.CRITICAL)) Color.rgb(211, 47, 47) else Color.rgb(56, 142, 60)
         drawKpiCard(
             canvas, 20f + cardW + 12f, y, cardW, cardH,
             title = "ÉQUILIBRE HYDRIQUE & STOMIE",
-            mainVal = if (avgWater > 0) String.format(Locale.FRANCE, "%.1f %% eau", avgWater) else "Suivi actif",
-            sub1 = "Débits liquides : $highLiquidStomaDays jour(s)",
-            sub2 = "Fuites / Incidents poche : $stomaIncidents",
-            badgeColor = if (highLiquidStomaDays > 2 || stomaIncidents > 2) Color.rgb(211, 47, 47) else Color.rgb(56, 142, 60)
+            mainVal = if (avgWater > 0) String.format(Locale.FRANCE, "%.1f %% eau corp.", avgWater) else stomaWaterText,
+            sub1 = "Apport eau : $stomaWaterText | Débits liquides : $highLiquidStomaDays j",
+            sub2 = "Poches : ${stomaSummary?.pouchChangeCount ?: 0}/j • $supportInfo",
+            badgeColor = card2BadgeColor
         )
 
         y += cardH + 8f

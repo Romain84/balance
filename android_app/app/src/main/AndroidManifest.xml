@@ -107,6 +107,19 @@
             </intent-filter>
         </receiver>
         <receiver
+            android:name=".core.stoma.StomaNotificationReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.health.openscale.stoma.ACTION_ADD_WATER_250" />
+                <action android:name="com.health.openscale.stoma.ACTION_ADD_WATER_500" />
+                <action android:name="com.health.openscale.stoma.ACTION_LOG_POUCH" />
+                <action android:name="com.health.openscale.stoma.ACTION_LOG_SUPPORT" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+        <receiver
             android:name="com.health.openscale.ui.widget.MeasurementWidgetReceiver"
             android:exported="true">
             <intent-filter>
