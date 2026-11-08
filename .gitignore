@@ -48,6 +48,7 @@ captures/
 .idea/dictionaries
 .idea/libraries
 .idea/caches
+backup/
 
 # Claude Code
 CLAUDE.md

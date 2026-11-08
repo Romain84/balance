@@ -916,7 +916,7 @@ val MIGRATION_19_20 = object : Migration(19, 20) {
                 "`glutenExposure` TEXT, " +
                 "`notes` TEXT, " +
                 "FOREIGN KEY(`userId`) REFERENCES `User`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE, " +
-                "FOREIGN KEY(`measurementId`) REFERENCES `Measurement`(`id`) ON UPDATE NO ACTION ON DELETE SET_NULL)"
+                "FOREIGN KEY(`measurementId`) REFERENCES `Measurement`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL)"
         )
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_HealthCheckin_userId` ON `HealthCheckin` (`userId`)")
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_HealthCheckin_measurementId` ON `HealthCheckin` (`measurementId`)")
