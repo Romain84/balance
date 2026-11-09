@@ -172,8 +172,10 @@ import com.health.openscale.ui.screen.dialog.UserGoalDialog
 import com.health.openscale.ui.screen.settings.BluetoothViewModel
 import com.health.openscale.ui.shared.SharedViewModel
 import com.health.openscale.ui.shared.TopBarAction
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.milliseconds
 import java.text.DateFormat
 import java.text.SimpleDateFormat
@@ -843,7 +845,7 @@ fun OverviewScreen(
                                         watchBiomarkers = watchBiomarkers,
                                         isRefreshingWatch = isRefreshingWatch,
                                         onRefreshWatch = refreshWatchBiomarkers,
-                                        onOpenHealthConnectSettings = { navController.navigate(Routes.HEALTH_CONNECT) },
+                                        onOpenHealthConnectSettings = { navController.navigate(Routes.HEALTH_CONNECT_SETTINGS) },
                                         onNavigateToSection = { selectedSection = it },
                                         onCheckinClick = {
                                             sharedViewModel.openHealthCheckinSheet(

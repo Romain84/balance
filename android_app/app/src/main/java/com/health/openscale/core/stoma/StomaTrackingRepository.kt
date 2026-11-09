@@ -187,7 +187,7 @@ class StomaTrackingRepository @Inject constructor(
                 val hcEntries = healthConnectReader.readHydration(startOfDay, endOfDay)
                 var importedCount = 0
 
-                synchronized(this@StomaTrackingRepository) {
+                val pendingWrites = synchronized(this@StomaTrackingRepository) {
                     val existingHcIds = _events.map { it.id }.toSet()
 
                     // Import drinks from external sources (e.g. Galaxy Watch / Samsung Health)
@@ -214,17 +214,20 @@ class StomaTrackingRepository @Inject constructor(
                             it.timestamp >= startOfDay &&
                             !it.id.startsWith("hc_")
                     }
-                    todayLocalWater.forEach { ev ->
-                        val clientId = "openscale:water:${ev.id}"
-                        if (clientId !in existingClientIds && ev.amountMl > 0) {
-                            healthConnectReader.writeHydration(ev.amountMl, ev.timestamp, ev.id)
-                        }
-                    }
 
                     if (importedCount > 0) {
                         saveEvents()
                         refreshSummary()
                     }
+
+                    todayLocalWater.filter {
+                        val clientId = "openscale:water:${it.id}"
+                        clientId !in existingClientIds && it.amountMl > 0
+                    }
+                }
+
+                pendingWrites.forEach { ev ->
+                    healthConnectReader.writeHydration(ev.amountMl, ev.timestamp, ev.id)
                 }
                 importedCount
             } catch (_: Exception) {
