@@ -32,6 +32,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.LocalDrink
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Watch
 import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -55,6 +57,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -98,10 +101,12 @@ fun DrinksScreen(
     }
 
     val timeFormat = remember { SimpleDateFormat("dd/MM/yyyy 'à' HH:mm", Locale.FRANCE) }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
         sharedViewModel.setTopBarTitle("Boissons")
         sharedViewModel.setTopBarActions(emptyList())
+        stomaRepo.syncWithHealthConnect()
     }
 
     LazyColumn(
@@ -181,6 +186,54 @@ fun DrinksScreen(
                         color = Color(0xFF009DA8),
                         trackColor = Color(0xFFE0F2F1)
                     )
+
+                    // Health Connect Watch Sync Banner
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFFE0F7FA).copy(alpha = 0.5f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF009DA8).copy(alpha = 0.3f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Watch,
+                                    contentDescription = null,
+                                    tint = Color(0xFF00838F),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "Synchro Montre (Galaxy Watch 6)",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color(0xFF00695C)
+                                )
+                            }
+
+                            TextButton(
+                                onClick = {
+                                    scope.launch {
+                                        val imported = stomaRepo.syncWithHealthConnect()
+                                        val msg = if (imported > 0) "$imported boisson(s) synchronisée(s) avec la montre ⌚" else "Hydratation à jour avec Connexion Santé ✓"
+                                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(13.dp), tint = Color(0xFF00838F))
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text("Synchroniser", fontSize = 11.sp, color = Color(0xFF00838F), fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
 
                     // Clinical Advice
                     Surface(

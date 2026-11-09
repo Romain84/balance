@@ -24,8 +24,11 @@ import androidx.health.connect.client.records.BodyFatRecord
 import androidx.health.connect.client.records.BodyWaterMassRecord
 import androidx.health.connect.client.records.BoneMassRecord
 import androidx.health.connect.client.records.HeartRateRecord
+import androidx.health.connect.client.records.HeartRateVariabilityRmssdRecord
 import androidx.health.connect.client.records.HeightRecord
+import androidx.health.connect.client.records.HydrationRecord
 import androidx.health.connect.client.records.LeanBodyMassRecord
+import androidx.health.connect.client.records.OxygenSaturationRecord
 import androidx.health.connect.client.records.RestingHeartRateRecord
 import androidx.health.connect.client.records.SleepSessionRecord
 import androidx.health.connect.client.records.StepsRecord
@@ -551,7 +554,8 @@ class HealthConnectSyncManager @Inject constructor(
             HealthPermission.getWritePermission(BodyWaterMassRecord::class),
             HealthPermission.getWritePermission(LeanBodyMassRecord::class),
             HealthPermission.getWritePermission(BoneMassRecord::class),
-            HealthPermission.getWritePermission(BasalMetabolicRateRecord::class)
+            HealthPermission.getWritePermission(BasalMetabolicRateRecord::class),
+            HealthPermission.getWritePermission(HydrationRecord::class)
         )
 
         val READ_PERMISSIONS = setOf(
@@ -559,7 +563,10 @@ class HealthConnectSyncManager @Inject constructor(
             HealthPermission.getReadPermission(BasalBodyTemperatureRecord::class),
             HealthPermission.getReadPermission(HeartRateRecord::class),
             HealthPermission.getReadPermission(RestingHeartRateRecord::class),
-            HealthPermission.getReadPermission(StepsRecord::class)
+            HealthPermission.getReadPermission(StepsRecord::class),
+            HealthPermission.getReadPermission(HydrationRecord::class),
+            HealthPermission.getReadPermission(HeartRateVariabilityRmssdRecord::class),
+            HealthPermission.getReadPermission(OxygenSaturationRecord::class)
         )
 
         val ALL_PERMISSIONS = WRITE_PERMISSIONS + READ_PERMISSIONS

@@ -112,6 +112,8 @@ fun HealthConnectSettingsScreen(
     var watchSleep by remember { mutableStateOf(ClinicalSleepSummary()) }
     var watchTemp by remember { mutableStateOf(ClinicalTempSummary()) }
     var watchHr by remember { mutableStateOf(ClinicalHeartRateSummary()) }
+    var watchHrv by remember { mutableStateOf(com.health.openscale.core.healthconnect.ClinicalHrvSummary()) }
+    var watchSpo2 by remember { mutableStateOf(com.health.openscale.core.healthconnect.ClinicalSpo2Summary()) }
     var watchSteps by remember { mutableStateOf(ClinicalStepsSummary()) }
     var isReadingWatch by remember { mutableStateOf(false) }
 
@@ -125,11 +127,15 @@ fun HealthConnectSettingsScreen(
                 val s = reader.readSleepSummary(start, now)
                 val t = reader.readBasalTempSummary(start, now)
                 val hr = reader.readHeartRateSummary(start, now)
+                val hrv = reader.readHrvSummary(start, now)
+                val spo2 = reader.readOxygenSaturationSummary(start, now)
                 val st = reader.readStepsSummary(start, now)
                 withContext(Dispatchers.Main) {
                     watchSleep = s
                     watchTemp = t
                     watchHr = hr
+                    watchHrv = hrv
+                    watchSpo2 = spo2
                     watchSteps = st
                     isReadingWatch = false
                 }
@@ -263,7 +269,7 @@ fun HealthConnectSettingsScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("• Données envoyées : Poids, Eau corporelle, Masse grasse, Masse osseuse, Masse musculaire, Métabolisme", fontSize = 11.sp, color = Color(0xFF37474F))
+                        Text("• Données envoyées : Poids, Eau corporelle, Masse grasse, Masse osseuse, Masse musculaire, Métabolisme, Hydratation (Boissons)", fontSize = 11.sp, color = Color(0xFF37474F))
                         Text(
                             text = "• Pesées synchronisées : ${state.counts.synced} | En attente : ${state.counts.pending} | Échecs : ${state.counts.failed}",
                             fontSize = 11.sp,
@@ -380,14 +386,25 @@ fun HealthConnectSettingsScreen(
                             )
                         }
 
-                        // Fréquence cardiaque
+                        // Fréquence cardiaque & VFC
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("❤️ Fréquence cardiaque :", fontSize = 11.sp, color = Color(0xFF37474F))
+                            Text("❤️ FC & VFC (RMSSD) :", fontSize = 11.sp, color = Color(0xFF37474F))
                             Text(
-                                text = if (watchHr.hasData) "${watchHr.avgRestingBpm} bpm au repos (${watchHr.minBpm}-${watchHr.maxBpm})" else "Capteur actif",
+                                text = if (watchHr.hasData) "${watchHr.avgRestingBpm} bpm ${if (watchHrv.hasData) "(VFC ${watchHrv.avgRmssdMs.toInt()} ms)" else ""}" else "Capteur actif",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = if (watchHr.hasData) Color(0xFF1B5E20) else Color.Gray
+                            )
+                        }
+
+                        // Oxygénation sanguine nocturne
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("🫁 Oxygénation SpO2 :", fontSize = 11.sp, color = Color(0xFF37474F))
+                            Text(
+                                text = if (watchSpo2.hasData && watchSpo2.avgSpo2Percent > 0) "${String.format(Locale.FRANCE, "%.0f", watchSpo2.avgSpo2Percent)}% (Min: ${watchSpo2.minSpo2Percent.toInt()}%)" else "Capteur nocturne",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (watchSpo2.hasData) Color(0xFF1B5E20) else Color.Gray
                             )
                         }
 
@@ -410,6 +427,87 @@ fun HealthConnectSettingsScreen(
                     color = Color.Gray,
                     fontSize = 11.sp
                 )
+            }
+        }
+
+        // -------------------------------------------------------------------------
+        // FLUX 3 : GUIDE & RACCOURCI SAMSUNG HEALTH
+        // -------------------------------------------------------------------------
+        Card(
+            shape = RoundedCornerShape(14.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE0E0E0))
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFE8EAF6)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.Watch, contentDescription = null, tint = Color(0xFF3F51B5), modifier = Modifier.size(18.dp))
+                    }
+                    Column {
+                        Text(
+                            text = "LIAISON SAMSUNG HEALTH & GALAXY WATCH 6",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = Color(0xFF3F51B5)
+                        )
+                        Text(
+                            text = "Configuration du partage des données vers openScale",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray
+                        )
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFFF9FAFB),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("1. Ouvrez Samsung Health > Paramètres > Connexion Santé (Health Connect)", fontSize = 11.sp, color = Color(0xFF37474F))
+                        Text("2. Cochez « Tout autoriser » pour partager vos nuits et vos biomarqueurs", fontSize = 11.sp, color = Color(0xFF37474F))
+                        Text("3. openScale reçoit automatiquement votre sommeil, température et hydratation !", fontSize = 11.sp, color = Color(0xFF1B5E20), fontWeight = FontWeight.SemiBold)
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            val intent = context.packageManager.getLaunchIntentForPackage("com.sec.android.app.shealth")
+                            if (intent != null) {
+                                context.startActivity(intent)
+                            } else {
+                                manageAccessLauncher.launch(Intent(HealthConnectClient.ACTION_HEALTH_CONNECT_SETTINGS))
+                            }
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3F51B5)),
+                        modifier = Modifier.weight(1.2f)
+                    ) {
+                        Text("Ouvrir Samsung Health", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            manageAccessLauncher.launch(Intent(HealthConnectClient.ACTION_HEALTH_CONNECT_SETTINGS))
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Connexion Santé", fontSize = 11.sp, maxLines = 1)
+                    }
+                }
             }
         }
 

@@ -14,16 +14,22 @@ import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.BasalBodyTemperatureRecord
 import androidx.health.connect.client.records.HeartRateRecord
+import androidx.health.connect.client.records.HeartRateVariabilityRmssdRecord
+import androidx.health.connect.client.records.HydrationRecord
+import androidx.health.connect.client.records.OxygenSaturationRecord
 import androidx.health.connect.client.records.RestingHeartRateRecord
 import androidx.health.connect.client.records.SleepSessionRecord
 import androidx.health.connect.client.records.StepsRecord
+import androidx.health.connect.client.records.metadata.Metadata
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
+import androidx.health.connect.client.units.Volume
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.util.Calendar
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -69,6 +75,37 @@ data class ClinicalStepsSummary(
     val avgDailySteps: Int = 0,
     val totalSteps: Long = 0,
     val daysRecorded: Int = 0
+)
+
+data class ClinicalHrvSummary(
+    val hasData: Boolean = false,
+    val avgRmssdMs: Float = 0f,
+    val minRmssdMs: Float = 0f,
+    val maxRmssdMs: Float = 0f
+)
+
+data class ClinicalSpo2Summary(
+    val hasData: Boolean = false,
+    val avgSpo2Percent: Float = 0f,
+    val minSpo2Percent: Float = 0f
+)
+
+data class HydrationEntry(
+    val id: String,
+    val clientRecordId: String? = null,
+    val timestamp: Long = 0L,
+    val amountMl: Int = 0,
+    val isExternal: Boolean = false
+)
+
+data class NightBiomarkersSummary(
+    val hasData: Boolean = false,
+    val sleep: ClinicalSleepSummary = ClinicalSleepSummary(),
+    val temp: ClinicalTempSummary = ClinicalTempSummary(),
+    val heartRate: ClinicalHeartRateSummary = ClinicalHeartRateSummary(),
+    val hrv: ClinicalHrvSummary = ClinicalHrvSummary(),
+    val spo2: ClinicalSpo2Summary = ClinicalSpo2Summary(),
+    val lastSyncTime: Long = System.currentTimeMillis()
 )
 
 @Singleton
@@ -308,5 +345,149 @@ class ClinicalHealthConnectReader @Inject constructor(
         } catch (_: Exception) {
             ClinicalStepsSummary()
         }
+    }
+
+    suspend fun readHrvSummary(startMillis: Long, endMillis: Long): ClinicalHrvSummary {
+        if (!isAvailable()) return ClinicalHrvSummary()
+        return try {
+            val client = HealthConnectClient.getOrCreate(context)
+            val request = ReadRecordsRequest(
+                recordType = HeartRateVariabilityRmssdRecord::class,
+                timeRangeFilter = TimeRangeFilter.between(
+                    Instant.ofEpochMilli(startMillis),
+                    Instant.ofEpochMilli(endMillis)
+                )
+            )
+            val records = client.readRecords(request).records
+            if (records.isEmpty()) return ClinicalHrvSummary()
+            val vals = records.map { it.heartRateVariabilityMillis.toFloat() }
+            ClinicalHrvSummary(
+                hasData = true,
+                avgRmssdMs = vals.average().toFloat(),
+                minRmssdMs = vals.minOrNull() ?: 0f,
+                maxRmssdMs = vals.maxOrNull() ?: 0f
+            )
+        } catch (_: Exception) {
+            ClinicalHrvSummary()
+        }
+    }
+
+    suspend fun readOxygenSaturationSummary(startMillis: Long, endMillis: Long): ClinicalSpo2Summary {
+        if (!isAvailable()) return ClinicalSpo2Summary()
+        return try {
+            val client = HealthConnectClient.getOrCreate(context)
+            val request = ReadRecordsRequest(
+                recordType = OxygenSaturationRecord::class,
+                timeRangeFilter = TimeRangeFilter.between(
+                    Instant.ofEpochMilli(startMillis),
+                    Instant.ofEpochMilli(endMillis)
+                )
+            )
+            val records = client.readRecords(request).records
+            if (records.isEmpty()) return ClinicalSpo2Summary()
+            val vals = records.map { it.percentage.value.toFloat() }
+            ClinicalSpo2Summary(
+                hasData = true,
+                avgSpo2Percent = vals.average().toFloat(),
+                minSpo2Percent = vals.minOrNull() ?: 0f
+            )
+        } catch (_: Exception) {
+            ClinicalSpo2Summary()
+        }
+    }
+
+    suspend fun readHydration(startMillis: Long, endMillis: Long): List<HydrationEntry> {
+        if (!isAvailable()) return emptyList()
+        return try {
+            val client = HealthConnectClient.getOrCreate(context)
+            val request = ReadRecordsRequest(
+                recordType = HydrationRecord::class,
+                timeRangeFilter = TimeRangeFilter.between(
+                    Instant.ofEpochMilli(startMillis),
+                    Instant.ofEpochMilli(endMillis)
+                )
+            )
+            val records = client.readRecords(request).records
+            records.map { rec ->
+                val clientRecordId = rec.metadata.clientRecordId
+                val isOwn = clientRecordId?.startsWith("openscale:") == true
+                HydrationEntry(
+                    id = rec.metadata.id,
+                    clientRecordId = clientRecordId,
+                    timestamp = rec.startTime.toEpochMilli(),
+                    amountMl = (rec.volume.inLiters * 1000.0).toInt(),
+                    isExternal = !isOwn
+                )
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    suspend fun writeHydration(amountMl: Int, timestamp: Long, eventId: String): Boolean {
+        if (!isAvailable()) return false
+        return try {
+            val client = HealthConnectClient.getOrCreate(context)
+            val start = Instant.ofEpochMilli(timestamp)
+            val end = start.plusSeconds(1)
+            val zone = ZoneId.systemDefault().rules.getOffset(start)
+            val record = HydrationRecord(
+                startTime = start,
+                startZoneOffset = zone,
+                endTime = end,
+                endZoneOffset = zone,
+                volume = Volume.liters(amountMl.toDouble() / 1000.0),
+                metadata = Metadata.manualEntry(
+                    clientRecordId = "openscale:water:$eventId"
+                )
+            )
+            client.insertRecords(listOf(record))
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    suspend fun deleteHydration(eventId: String): Boolean {
+        if (!isAvailable()) return false
+        return try {
+            val client = HealthConnectClient.getOrCreate(context)
+            client.deleteRecords(
+                recordType = HydrationRecord::class,
+                recordIdsList = emptyList(),
+                clientRecordIdsList = listOf("openscale:water:$eventId")
+            )
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    suspend fun readLastNightBiomarkers(): NightBiomarkersSummary {
+        val now = System.currentTimeMillis()
+        val cal = Calendar.getInstance().apply {
+            timeInMillis = now
+            add(Calendar.DAY_OF_YEAR, -1)
+            set(Calendar.HOUR_OF_DAY, 18)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        val startWindow = cal.timeInMillis
+        val sleep = readSleepSummary(startWindow, now)
+        val temp = readBasalTempSummary(startWindow, now)
+        val hr = readHeartRateSummary(startWindow, now)
+        val hrv = readHrvSummary(startWindow, now)
+        val spo2 = readOxygenSaturationSummary(startWindow, now)
+        val hasData = sleep.hasData || temp.hasData || hr.hasData || hrv.hasData || spo2.hasData
+        return NightBiomarkersSummary(
+            hasData = hasData,
+            sleep = sleep,
+            temp = temp,
+            heartRate = hr,
+            hrv = hrv,
+            spo2 = spo2,
+            lastSyncTime = now
+        )
     }
 }

@@ -68,7 +68,9 @@ import com.health.openscale.core.data.HealthCheckin
 import com.health.openscale.core.data.MeasurementType
 import com.health.openscale.core.healthconnect.ClinicalHealthConnectReader
 import com.health.openscale.core.healthconnect.ClinicalHeartRateSummary
+import com.health.openscale.core.healthconnect.ClinicalHrvSummary
 import com.health.openscale.core.healthconnect.ClinicalSleepSummary
+import com.health.openscale.core.healthconnect.ClinicalSpo2Summary
 import com.health.openscale.core.healthconnect.ClinicalStepsSummary
 import com.health.openscale.core.healthconnect.ClinicalTempSummary
 import com.health.openscale.core.medication.MedicationRepository
@@ -101,6 +103,8 @@ fun DoctorConsultationScreen(
     var sleepSummary by remember { mutableStateOf(ClinicalSleepSummary()) }
     var tempSummary by remember { mutableStateOf(ClinicalTempSummary()) }
     var heartRateSummary by remember { mutableStateOf(ClinicalHeartRateSummary()) }
+    var hrvSummary by remember { mutableStateOf(ClinicalHrvSummary()) }
+    var spo2Summary by remember { mutableStateOf(ClinicalSpo2Summary()) }
     var stepsSummary by remember { mutableStateOf(ClinicalStepsSummary()) }
 
     // Load data for the selected period
@@ -122,6 +126,8 @@ fun DoctorConsultationScreen(
             val sSummary = reader.readSleepSummary(startDate, now)
             val tSummary = reader.readBasalTempSummary(startDate, now)
             val hrSummary = reader.readHeartRateSummary(startDate, now)
+            val hSummary = reader.readHrvSummary(startDate, now)
+            val spSummary = reader.readOxygenSaturationSummary(startDate, now)
             val stSummary = reader.readStepsSummary(startDate, now)
 
             withContext(Dispatchers.Main) {
@@ -130,6 +136,8 @@ fun DoctorConsultationScreen(
                 sleepSummary = sSummary
                 tempSummary = tSummary
                 heartRateSummary = hrSummary
+                hrvSummary = hSummary
+                spo2Summary = spSummary
                 stepsSummary = stSummary
             }
         }
@@ -356,6 +364,8 @@ fun DoctorConsultationScreen(
                         "Sommeil moyen" to if (sleepSummary.hasData) sleepSummary.formattedAvgDuration else "Enregistré",
                         "Micro-réveils" to if (sleepSummary.hasData) String.format(Locale.FRANCE, "%.1f / nuit", sleepSummary.avgAwakeningsPerNight) else "--",
                         "FC Repos moyenne" to if (heartRateSummary.hasData) "${heartRateSummary.avgRestingBpm} bpm" else "--",
+                        "VFC moyenne (HRV)" to if (hrvSummary.hasData) "${hrvSummary.avgRmssdMs.toInt()} ms" else "--",
+                        "Oxygénation SpO2" to if (spo2Summary.hasData && spo2Summary.avgSpo2Percent > 0) String.format(Locale.FRANCE, "%.0f %%", spo2Summary.avgSpo2Percent) else "--",
                         "Activité quotidienne" to if (stepsSummary.hasData) String.format(Locale.FRANCE, "%,d pas/j", stepsSummary.avgDailySteps) else "--"
                     ),
                     clinicalRemark = if (severePainDays > 3) {

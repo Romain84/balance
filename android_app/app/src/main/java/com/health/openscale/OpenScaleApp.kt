@@ -113,6 +113,7 @@ class OpenScaleApp : Application(), Configuration.Provider {
                         }
                         healthConnectSyncScheduler.get().scheduleRecoverySync()
                         healthConnectSyncScheduler.get().enqueue(fullHistory = false)
+                        com.health.openscale.core.stoma.StomaTrackingRepository(applicationContext).syncWithHealthConnect()
                     }
                 }
             } catch (e: Exception) {

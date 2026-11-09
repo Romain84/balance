@@ -11,10 +11,15 @@ package com.health.openscale.core.stoma
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.health.openscale.core.healthconnect.ClinicalHealthConnectReader
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -32,6 +37,8 @@ class StomaTrackingRepository @Inject constructor(
 ) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences("stoma_tracking_prefs", Context.MODE_PRIVATE)
+
+    private val healthConnectReader = ClinicalHealthConnectReader(context.applicationContext)
 
     private val file: File
         get() = File(context.filesDir, "stoma_tracking_events.json")
@@ -109,14 +116,20 @@ class StomaTrackingRepository @Inject constructor(
 
     @Synchronized
     fun addWater(amountMl: Int) {
-        _events.add(
-            StomaEvent(
-                type = StomaEventType.WATER,
-                amountMl = amountMl
-            )
+        val event = StomaEvent(
+            type = StomaEventType.WATER,
+            amountMl = amountMl
         )
+        _events.add(event)
         saveEvents()
         refreshSummary()
+
+        // Sync to Health Connect in background
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                healthConnectReader.writeHydration(amountMl, event.timestamp, event.id)
+            } catch (_: Exception) {}
+        }
     }
 
     @Synchronized
@@ -149,8 +162,75 @@ class StomaTrackingRepository @Inject constructor(
         if (removed) {
             saveEvents()
             refreshSummary()
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    healthConnectReader.deleteHydration(id)
+                } catch (_: Exception) {}
+            }
         }
         return removed
+    }
+
+    suspend fun syncWithHealthConnect(): Int {
+        return withContext(Dispatchers.IO) {
+            try {
+                if (!healthConnectReader.isAvailable()) return@withContext 0
+                val cal = Calendar.getInstance().apply {
+                    set(Calendar.HOUR_OF_DAY, 0)
+                    set(Calendar.MINUTE, 0)
+                    set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
+                }
+                val startOfDay = cal.timeInMillis
+                val endOfDay = System.currentTimeMillis()
+
+                val hcEntries = healthConnectReader.readHydration(startOfDay, endOfDay)
+                var importedCount = 0
+
+                synchronized(this@StomaTrackingRepository) {
+                    val existingHcIds = _events.map { it.id }.toSet()
+
+                    // Import drinks from external sources (e.g. Galaxy Watch / Samsung Health)
+                    hcEntries.filter { it.isExternal }.forEach { hc ->
+                        val importedId = "hc_${hc.id}"
+                        if (importedId !in existingHcIds && hc.amountMl > 0) {
+                            _events.add(
+                                StomaEvent(
+                                    id = importedId,
+                                    timestamp = hc.timestamp,
+                                    type = StomaEventType.WATER,
+                                    amountMl = hc.amountMl,
+                                    note = "Montre (Samsung Health)"
+                                )
+                            )
+                            importedCount++
+                        }
+                    }
+
+                    // Push any local water events of today that aren't yet in Health Connect
+                    val existingClientIds = hcEntries.mapNotNull { it.clientRecordId }.toSet()
+                    val todayLocalWater = _events.filter {
+                        it.type == StomaEventType.WATER &&
+                            it.timestamp >= startOfDay &&
+                            !it.id.startsWith("hc_")
+                    }
+                    todayLocalWater.forEach { ev ->
+                        val clientId = "openscale:water:${ev.id}"
+                        if (clientId !in existingClientIds && ev.amountMl > 0) {
+                            healthConnectReader.writeHydration(ev.amountMl, ev.timestamp, ev.id)
+                        }
+                    }
+
+                    if (importedCount > 0) {
+                        saveEvents()
+                        refreshSummary()
+                    }
+                }
+                importedCount
+            } catch (_: Exception) {
+                0
+            }
+        }
     }
 
     @Synchronized

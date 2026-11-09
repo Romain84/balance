@@ -66,6 +66,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Medication
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Watch
 import androidx.compose.material.icons.filled.WaterDrop
 import com.health.openscale.ui.screen.dialog.HealthCheckinSheet
 import com.health.openscale.ui.screen.dialog.MedicalReportDialog
@@ -73,6 +75,8 @@ import com.health.openscale.core.stoma.StomaNotificationManager
 import com.health.openscale.core.stoma.StomaTrackingRepository
 import com.health.openscale.core.stoma.StomaEventType
 import com.health.openscale.core.stoma.DailyStomaSummary
+import com.health.openscale.core.healthconnect.ClinicalHealthConnectReader
+import com.health.openscale.core.healthconnect.NightBiomarkersSummary
 import com.health.openscale.core.medication.MedicationRepository
 import com.health.openscale.core.medication.MedicationIntake
 import androidx.compose.material3.Button
@@ -243,6 +247,28 @@ fun OverviewScreen(
     var selectedSection by rememberSaveable { mutableStateOf(OverviewSection.SYNTHESIS) }
     val medRepo = remember { MedicationRepository(context) }
     var medicationIntakes by remember { mutableStateOf(medRepo.loadIntakes()) }
+
+    val clinicalReader = remember { ClinicalHealthConnectReader(context) }
+    var watchBiomarkers by remember { mutableStateOf<NightBiomarkersSummary?>(null) }
+    var isRefreshingWatch by remember { mutableStateOf(false) }
+
+    val refreshWatchBiomarkers: () -> Unit = {
+        scope.launch {
+            isRefreshingWatch = true
+            withContext(Dispatchers.IO) {
+                val b = clinicalReader.readLastNightBiomarkers()
+                stomaRepo.syncWithHealthConnect()
+                withContext(Dispatchers.Main) {
+                    watchBiomarkers = b
+                    isRefreshingWatch = false
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        refreshWatchBiomarkers()
+    }
 
     val onAddWater: (Int) -> Unit = remember(stomaRepo, isLockscreenNotifEnabled) {
         { amount ->
@@ -814,6 +840,10 @@ fun OverviewScreen(
                                         stomaSummary = stomaSummary,
                                         medicationIntakes = medicationIntakes,
                                         latestMeasurement = aggregatedItems.firstOrNull(),
+                                        watchBiomarkers = watchBiomarkers,
+                                        isRefreshingWatch = isRefreshingWatch,
+                                        onRefreshWatch = refreshWatchBiomarkers,
+                                        onOpenHealthConnectSettings = { navController.navigate(Routes.HEALTH_CONNECT) },
                                         onNavigateToSection = { selectedSection = it },
                                         onCheckinClick = {
                                             sharedViewModel.openHealthCheckinSheet(
@@ -1057,6 +1087,10 @@ fun SynthesisSection(
     stomaSummary: DailyStomaSummary,
     medicationIntakes: List<MedicationIntake>,
     latestMeasurement: AggregatedMeasurement?,
+    watchBiomarkers: NightBiomarkersSummary? = null,
+    isRefreshingWatch: Boolean = false,
+    onRefreshWatch: () -> Unit = {},
+    onOpenHealthConnectSettings: () -> Unit = {},
     onNavigateToSection: (OverviewSection) -> Unit,
     onCheckinClick: () -> Unit,
     onReportClick: () -> Unit,
@@ -1235,6 +1269,14 @@ fun SynthesisSection(
                 }
             }
         }
+
+        // --- NUIT & BIOMARQUEURS MONTRE CONNECTÉE (Galaxy Watch 6) ---
+        NightWatchCard(
+            biomarkers = watchBiomarkers,
+            isRefreshing = isRefreshingWatch,
+            onRefresh = onRefreshWatch,
+            onOpenSettings = onOpenHealthConnectSettings
+        )
 
         // --- 2. VOS PILIERS DE SANTÉ (CLOISONNEMENT) ---
         Text(
@@ -1495,6 +1537,263 @@ fun SynthesisSection(
                 )
             ) {
                 Text("🩺 Consultation", maxLines = 1, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// NightWatchCard (Samsung Galaxy Watch 6 & Health Connect)
+// ---------------------------------------------------------------------------
+
+@Composable
+fun NightWatchCard(
+    biomarkers: NightBiomarkersSummary?,
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit,
+    onOpenSettings: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, Color(0xFF009DA8).copy(alpha = 0.35f))
+    ) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFE0F7FA)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Watch,
+                            contentDescription = null,
+                            tint = Color(0xFF00838F),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Column {
+                        Text(
+                            text = "Nuit & Montre Connectée",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = Color(0xFF00365B)
+                        )
+                        Text(
+                            text = "Galaxy Watch 6 • Connexion Santé",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray
+                        )
+                    }
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (isRefreshing) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = Color(0xFF009DA8))
+                    } else {
+                        IconButton(onClick = onRefresh, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Actualiser", tint = Color(0xFF009DA8), modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+            }
+
+            // 4 Metrics Grid
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Metric 1: Sommeil
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color(0xFFF0F4F8),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("😴", fontSize = 13.sp)
+                            Text("Sommeil", fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.SemiBold)
+                        }
+                        val duration = biomarkers?.sleep?.formattedAvgDuration ?: "--"
+                        Text(
+                            text = duration,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF00365B)
+                        )
+                        val awakeStr = if (biomarkers?.sleep?.hasData == true) {
+                            "${biomarkers.sleep.avgAwakeningsPerNight.toInt()} réveil(s)"
+                        } else "En attente"
+                        Text(awakeStr, fontSize = 10.sp, color = Color(0xFF546E7A))
+                    }
+                }
+
+                // Metric 2: Température basale
+                val isHighPhase = biomarkers?.temp?.highPhaseDetected == true
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (isHighPhase) Color(0xFFFCE4EC) else Color(0xFFF0F4F8),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("🌡️", fontSize = 13.sp)
+                            Text("Temp. basale", fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.SemiBold)
+                        }
+                        val tempStr = if (biomarkers?.temp?.hasData == true) {
+                            String.format(Locale.FRANCE, "%.2f °C", biomarkers.temp.avgTempCelsius)
+                        } else "--"
+                        Text(
+                            text = tempStr,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isHighPhase) Color(0xFFAD1457) else Color(0xFF00365B)
+                        )
+                        val phaseStr = if (isHighPhase) {
+                            "Phase lutéale active"
+                        } else if (biomarkers?.temp?.hasData == true) "Temp. stable" else "En attente"
+                        Text(phaseStr, fontSize = 10.sp, color = if (isHighPhase) Color(0xFFAD1457) else Color(0xFF546E7A))
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Metric 3: FC repos & VFC
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color(0xFFF0F4F8),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("❤️", fontSize = 13.sp)
+                            Text("FC de repos", fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.SemiBold)
+                        }
+                        val hrStr = if (biomarkers?.heartRate?.hasData == true && biomarkers.heartRate.avgRestingBpm > 0) {
+                            "${biomarkers.heartRate.avgRestingBpm} bpm"
+                        } else "--"
+                        Text(
+                            text = hrStr,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF00365B)
+                        )
+                        val hrvStr = if (biomarkers?.hrv?.hasData == true) {
+                            "VFC : ${biomarkers.hrv.avgRmssdMs.toInt()} ms"
+                        } else "Au réveil"
+                        Text(hrvStr, fontSize = 10.sp, color = Color(0xFF546E7A))
+                    }
+                }
+
+                // Metric 4: SpO2 nocturne
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color(0xFFF0F4F8),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("🫁", fontSize = 13.sp)
+                            Text("SpO2 nocturne", fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.SemiBold)
+                        }
+                        val spo2Str = if (biomarkers?.spo2?.hasData == true && biomarkers.spo2.avgSpo2Percent > 0) {
+                            String.format(Locale.FRANCE, "%.0f %%", biomarkers.spo2.avgSpo2Percent)
+                        } else "--"
+                        Text(
+                            text = spo2Str,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF00365B)
+                        )
+                        val minSpo2 = if (biomarkers?.spo2?.hasData == true && biomarkers.spo2.minSpo2Percent > 0) {
+                            "Min: ${biomarkers.spo2.minSpo2Percent.toInt()}%"
+                        } else "Oxygénation"
+                        Text(minSpo2, fontSize = 10.sp, color = Color(0xFF546E7A))
+                    }
+                }
+            }
+
+            // Clinical interpretation box
+            if (biomarkers?.hasData == true) {
+                val awakenings = biomarkers.sleep.avgAwakeningsPerNight
+                val isHighPhase = biomarkers.temp.highPhaseDetected
+                val isFragmented = awakenings >= 3
+
+                val bannerColor = when {
+                    isFragmented -> Color(0xFFFFF3E0)
+                    isHighPhase -> Color(0xFFFCE4EC)
+                    else -> Color(0xFFE8F5E9)
+                }
+                val bannerBorder = when {
+                    isFragmented -> Color(0xFFFFB74D)
+                    isHighPhase -> Color(0xFFF48FB1)
+                    else -> Color(0xFFA5D6A7)
+                }
+                val bannerTextColor = when {
+                    isFragmented -> Color(0xFFE65100)
+                    isHighPhase -> Color(0xFF880E4F)
+                    else -> Color(0xFF2E7D32)
+                }
+
+                val bannerText = when {
+                    isFragmented && isHighPhase ->
+                        "⚠️ Nuit agitée (${awakenings.toInt()} réveils) + Plateau thermique actif : Risque de fatigue et de tensions pelviennes accrues aujourd'hui."
+                    isFragmented ->
+                        "⚠️ Nuit fragmentée (${awakenings.toInt()} réveils nocturnes) : Repos et hydratation conseillés pour compenser la fatigue."
+                    isHighPhase ->
+                        "🌸 Plateau thermique ovulatoire détecté (+${String.format(Locale.FRANCE, "%.2f", biomarkers.temp.deltaCelsius)}°C) : Phase lutéale active."
+                    else ->
+                        "🟢 Nuit calme et biomarqueurs stables. Bonne récupération nocturne."
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = bannerColor,
+                    border = BorderStroke(1.dp, bannerBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = bannerText,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = bannerTextColor,
+                        modifier = Modifier.padding(8.dp)
+                    )
+                }
+            } else {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFFF9FAFB),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(8.dp).fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Portez votre Galaxy Watch 6 cette nuit pour relever vos données.",
+                            fontSize = 11.sp,
+                            color = Color.Gray,
+                            modifier = Modifier.weight(1f)
+                        )
+                        androidx.compose.material3.TextButton(onClick = onOpenSettings) {
+                            Text("Gérer l'accès", fontSize = 11.sp)
+                        }
+                    }
+                }
             }
         }
     }
