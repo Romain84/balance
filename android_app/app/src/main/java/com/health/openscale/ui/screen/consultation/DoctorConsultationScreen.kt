@@ -367,8 +367,11 @@ fun DoctorConsultationScreen(
                         tempSummary = tempSummary,
                         hrSummary = heartRateSummary,
                         stepsSummary = stepsSummary,
+                        hrvSummary = hrvSummary,
+                        spo2Summary = spo2Summary,
                         specialist = "Médecin traitant",
-                        consultationMotif = "Mode Consultation Praticien (${selectedPeriod.label}) - Bilan d'observance"
+                        consultationMotif = "Mode Consultation Praticien (${selectedPeriod.label}) - Bilan d'observance",
+                        periodDays = selectedPeriod.days
                     )
                     withContext(Dispatchers.Main) {
                         isDirectSharing = false
