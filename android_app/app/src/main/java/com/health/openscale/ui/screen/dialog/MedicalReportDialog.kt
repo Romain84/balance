@@ -139,7 +139,8 @@ fun MedicalReportDialog(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 val periodOptions = listOf(
-                    1 to "1 mois (Ajustement récent)",
+                    0 to "7 jours (Ajustement aigu)",
+                    1 to "1 mois (30 jours)",
                     3 to "3 mois (Recommandé consultation)",
                     6 to "6 mois (Suivi semestriel)"
                 )
@@ -228,7 +229,11 @@ fun MedicalReportDialog(
                         try {
                             val calendar = java.util.Calendar.getInstance()
                             val now = calendar.timeInMillis
-                            calendar.add(java.util.Calendar.MONTH, -selectedMonths)
+                            if (selectedMonths == 0) {
+                                calendar.add(java.util.Calendar.DAY_OF_YEAR, -7)
+                            } else {
+                                calendar.add(java.util.Calendar.MONTH, -selectedMonths)
+                            }
                             val startDate = calendar.timeInMillis
 
                             val reader = ClinicalHealthConnectReader(context)
@@ -236,6 +241,8 @@ fun MedicalReportDialog(
                             val tempSummary = reader.readBasalTempSummary(startDate, now)
                             val hrSummary = reader.readHeartRateSummary(startDate, now)
                             val stepsSummary = reader.readStepsSummary(startDate, now)
+                            val hrvSummary = reader.readHrvSummary(startDate, now)
+                            val spo2Summary = reader.readOxygenSaturationSummary(startDate, now)
 
                             val pdfFile = MedicalReportGenerator.generateReport(
                                 context = context,
@@ -247,8 +254,11 @@ fun MedicalReportDialog(
                                 tempSummary = tempSummary,
                                 hrSummary = hrSummary,
                                 stepsSummary = stepsSummary,
+                                hrvSummary = hrvSummary,
+                                spo2Summary = spo2Summary,
                                 specialist = selectedSpecialist,
-                                consultationMotif = motifText.trim()
+                                consultationMotif = motifText.trim(),
+                                periodDays = if (selectedMonths == 0) 7 else null
                             )
                             withContext(Dispatchers.Main) {
                                 isGenerating = false
