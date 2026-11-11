@@ -110,7 +110,7 @@ private val OptimalGreen = Color(0xFF2E7D32)
 enum class ClinicalPeriod(val days: Int, val label: String, val subtitle: String) {
     WEEK_7D(7, "7 jours", "Semaine récente"),
     MONTH_30D(30, "30 jours", "Cycle mensuel"),
-    QUARTER_90D(90, "3 mois", "Bilan trimestriel ALD")
+    QUARTER_90D(90, "3 mois", "Bilan trimestriel")
 }
 
 enum class ClinicalAlertLevel(
@@ -633,7 +633,7 @@ private fun PatientDossierBanner(user: User?) {
                         color = Color.White
                     )
                     Text(
-                        text = "Dossier Médical Pluridisciplinaire · ALD Colostomie & Endométriose",
+                        text = "Dossier Médical Pluridisciplinaire · Colostomie & Endométriose",
                         style = MaterialTheme.typography.bodySmall,
                         color = Color(0xFFB2EBF2)
                     )
@@ -651,7 +651,7 @@ private fun PatientDossierBanner(user: User?) {
                     modifier = Modifier.padding(10.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text("• Colostomie 2 pièces : SenSura® Mio Click 60mm & Brava® Support Plus", color = Color.White, fontSize = 11.sp)
+                    Text("• Colostomie : appareillage 2 pièces & protecteurs cutanés", color = Color.White, fontSize = 11.sp)
                     Text("• Endométriose post-hystérectomie : ovaires conservés (sensations hormonales)", color = Color.White, fontSize = 11.sp)
                     Text("• Régime sans gluten strict : suivi du ballonnement Endo-Belly et éviction", color = Color.White, fontSize = 11.sp)
                     Text("• Télésurveillance Galaxy Watch 6 : sommeil, thermométrie basale, VRC & SpO2", color = Color.White, fontSize = 11.sp)
@@ -988,7 +988,7 @@ private fun PillarGastroStomieCard(
                 }
 
                 Text(
-                    text = "SenSura® Mio Click 60mm",
+                    text = "Appareillage 2 pièces",
                     fontSize = 10.sp,
                     color = Color.Gray,
                     fontWeight = FontWeight.SemiBold
@@ -1071,7 +1071,7 @@ private fun PillarGastroStomieCard(
             ) {
                 val remark = when {
                     stomaIncidents == 0 && liquidDays <= 1 && glutenSuspicions == 0 ->
-                        "🟢 Appareillage SenSura® étanche, transit stomique régulier et régime sans gluten scrupuleusement respecté."
+                        "🟢 Appareillage étanche, transit stomique régulier et régime sans gluten scrupuleusement respecté."
                     stomaIncidents >= 2 ->
                         "🔴 Vigilance : $stomaIncidents incident(s) de fuite répertorié(s). Vérifier la découpe du support 15-40mm et la protection Brava®."
                     liquidDays >= 3 ->
@@ -1630,7 +1630,7 @@ private fun buildClinicalFlags(
                 level = ClinicalAlertLevel.CRITICAL,
                 category = "STOMIE",
                 message = "Incidents péristomiaux répétés ($stomaIncidents fuite(s) ou décollement(s))",
-                recommendation = "Risque d'altération cutanée. Vérifier la découpe du support SenSura® Mio Click 60mm et l'application des anneaux Brava®."
+                recommendation = "Risque d'altération cutanée. Vérifier la découpe du support et l'application des protecteurs péristomiaux."
             )
         )
     } else if (liquidStomaDays >= 3) {
@@ -1734,7 +1734,7 @@ private fun buildExecutiveSummary(
         if (stomaIncidents > 0) {
             append("$stomaIncidents incident(s) de stomie répertorié(s). ")
         } else {
-            append("Appareillage SenSura® étanche sans fuite.")
+            append("Appareillage étanche sans fuite.")
         }
     }
 }

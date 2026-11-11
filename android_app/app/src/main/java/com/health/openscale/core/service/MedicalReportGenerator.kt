@@ -230,7 +230,7 @@ object MedicalReportGenerator {
         paint.textSize = 7.8f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
         paint.color = Color.rgb(128, 222, 234) // Light Turquoise
-        canvas.drawText("openScale Santé • ALD 100% • Coloplast SenSura® Mio Click 60mm & Brava®", 20f, 38f, paint)
+        canvas.drawText("openScale Santé • Synthèse Clinique & Suivi Médical", 20f, 38f, paint)
 
         val editDateStr = "Édité le ${dateFormat.format(Date(now))}"
         val periodDatesStr = "Période : ${dateFormat.format(Date(startDate))} au ${dateFormat.format(Date(now))}"
@@ -357,11 +357,11 @@ object MedicalReportGenerator {
         val triageW = paint.measureText(triageText)
         canvas.drawText(triageText, PAGE_WIDTH - 28f - triageW, curY + 15f, paint)
 
-        // Patient line 2: Protocol ALD
+        // Patient line 2: Suivi clinique
         paint.color = Color.rgb(55, 71, 79)
         paint.textSize = 7.5f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-        canvas.drawText("Protocole ALD : Colostomie 2 pièces SenSura® Mio Click (60mm) • Endométriose post-hystérectomie (ovaires conservés) • Sans gluten strict", 28f, curY + 29f, paint)
+        canvas.drawText("Suivi clinique : Colostomie • Endométriose post-hystérectomie (ovaires conservés) • Régime sans gluten strict", 28f, curY + 29f, paint)
 
         if (hasMotif) {
             paint.color = Color.rgb(198, 40, 40)
@@ -661,7 +661,7 @@ object MedicalReportGenerator {
         paint.color = Color.GRAY
         paint.textSize = 7f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.ITALIC)
-        canvas.drawText("Document confidentiel certifié • openScale Santé ALD 100% • Secret médical (Art. L. 1110-4 CSP)", 20f, PAGE_HEIGHT - 12f, paint)
+        canvas.drawText("Document confidentiel certifié • openScale Santé • Secret médical (Art. L. 1110-4 CSP)", 20f, PAGE_HEIGHT - 12f, paint)
         canvas.drawText("Page 1 / 2", PAGE_WIDTH - 60f, PAGE_HEIGHT - 12f, paint)
     }
 
@@ -773,7 +773,7 @@ object MedicalReportGenerator {
         paint.color = Color.GRAY
         paint.textSize = 7f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.ITALIC)
-        canvas.drawText("Document vectoriel confidentiel certifié • openScale Santé ALD 100%", 20f, PAGE_HEIGHT - 12f, paint)
+        canvas.drawText("Document vectoriel confidentiel certifié • openScale Santé", 20f, PAGE_HEIGHT - 12f, paint)
         canvas.drawText("Page 2 / 2", PAGE_WIDTH - 60f, PAGE_HEIGHT - 12f, paint)
     }
 
@@ -925,7 +925,7 @@ object MedicalReportGenerator {
         canvas.drawText("Prescriptions & Suites de consultation :", x + 10f, y + 38f, paint)
 
         paint.textSize = 6.5f
-        canvas.drawText("[  ] Renouvellement ALD Colostomie SenSura® Mio Click 60mm & Brava®", x + 10f, y + 49f, paint)
+        canvas.drawText("[  ] Renouvellement matériel de stomie & accessoires", x + 10f, y + 49f, paint)
         canvas.drawText("[  ] Adaptation posologique antalgique / Protocole crise pelvienne", x + 10f, y + 59f, paint)
         canvas.drawText("[  ] Bilan biologique de contrôle (NFS, Ionogramme, CRP, Bilan martial)", x + 10f, y + 69f, paint)
         canvas.drawText("[  ] Suivi stomathérapie péristomiale & adhérence régime sans gluten", x + 10f, y + 79f, paint)
