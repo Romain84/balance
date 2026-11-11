@@ -12,11 +12,10 @@ package com.health.openscale.core.service
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
-import com.health.openscale.core.data.Gender
+import com.health.openscale.core.data.ActivityLevel
+import com.health.openscale.core.data.GenderType
 import com.health.openscale.core.data.HealthCheckin
-import com.health.openscale.core.data.Measurement
 import com.health.openscale.core.data.MeasurementType
-import com.health.openscale.core.data.MeasurementValue
 import com.health.openscale.core.data.User
 import com.health.openscale.core.healthconnect.ClinicalHeartRateSummary
 import com.health.openscale.core.healthconnect.ClinicalHrvSummary
@@ -24,7 +23,7 @@ import com.health.openscale.core.healthconnect.ClinicalSleepSummary
 import com.health.openscale.core.healthconnect.ClinicalSpo2Summary
 import com.health.openscale.core.healthconnect.ClinicalStepsSummary
 import com.health.openscale.core.healthconnect.ClinicalTempSummary
-import com.health.openscale.core.model.MeasurementWithValues
+import com.health.openscale.testutil.Fixtures
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -39,8 +38,11 @@ class MedicalReportGeneratorTest {
     private val testUser = User(
         id = 1,
         name = "Sophie Martin",
-        gender = Gender.FEMALE,
-        height = 168.0f
+        birthDate = 0L,
+        gender = GenderType.FEMALE,
+        heightCm = 168.0f,
+        activityLevel = ActivityLevel.MODERATE,
+        useAssistedWeighing = false
     )
 
     @Test
@@ -78,10 +80,17 @@ class MedicalReportGeneratorTest {
     @Test
     fun `generateReport succeeds with clinical data and health connect summaries`() {
         val now = System.currentTimeMillis()
-        val m = Measurement(id = 1, userId = 1, timestamp = now)
-        val mvWeight = MeasurementValue(id = 1, measurementId = 1, type = MeasurementType.WEIGHT, value = 62.5f)
-        val mvWater = MeasurementValue(id = 2, measurementId = 1, type = MeasurementType.WATER, value = 53.0f)
-        val mwv = MeasurementWithValues(m, listOf(mvWeight, mvWater))
+        val weightType = MeasurementType(id = 1, identity = MeasurementType.WEIGHT.identity)
+        val waterType = MeasurementType(id = 2, identity = MeasurementType.WATER.identity)
+
+        val mwv = Fixtures.mwv(
+            measurementId = 1,
+            timestamp = now,
+            values = listOf(
+                Fixtures.valueWithType(weightType, 62.5f, measurementId = 1),
+                Fixtures.valueWithType(waterType, 53.0f, measurementId = 1)
+            )
+        )
 
         val checkin = HealthCheckin(
             id = 1,

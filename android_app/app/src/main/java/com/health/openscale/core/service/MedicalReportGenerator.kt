@@ -263,7 +263,7 @@ object MedicalReportGenerator {
         val deltaWeight = if (weights.size >= 2) (currentWeight - firstWeight) else 0f
         val avgWater = if (waters.isNotEmpty()) waters.average().toFloat() else 0f
 
-        val heightM = (user.height.toFloat()) / 100f
+        val heightM = user.heightCm / 100f
         val imc = if (heightM > 0.5f && currentWeight > 0f) currentWeight / (heightM * heightM) else 0f
 
         val waterFromHistories = stomaHistories.filter { it.totalWaterMl > 0 }.map { it.totalWaterMl }
