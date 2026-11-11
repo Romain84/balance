@@ -1530,15 +1530,17 @@ fun SynthesisSection(
                 Text("Commande 📦", maxLines = 1, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
 
-            OutlinedButton(
+            Button(
                 onClick = onConsultationClick,
-                modifier = Modifier.weight(1.2f),
+                modifier = Modifier.weight(1.3f),
                 shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = Color(0xFF00365B)
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF00365B)
                 )
             ) {
-                Text("🩺 Consultation", maxLines = 1, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Icon(Icons.Default.LocalHospital, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Mode Praticien 🩺", maxLines = 1, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
