@@ -153,37 +153,34 @@ class StomaOrderReportGeneratorTest {
     }
 
     @Test
-    fun `shareOrder uses matching file_provider authority and read URI permission`() {
+    fun `shareOrder and sendByEmail use matching file_provider authority and populate intent extras`() {
+        val items = sampleItems(2)
         val pdfFile = generator.generateOrderPdf(
             patientName = "Sophie Martin",
-            items = sampleItems(2)
+            items = items
         )
 
+        // 1. Verify shareOrder uses real FileProvider with matching file_provider authority
         generator.shareOrder(pdfFile)
 
-        val chooser = Shadows.shadowOf(app).nextStartedActivity
-        assertThat(chooser).isNotNull()
-        assertThat(chooser.action).isEqualTo(Intent.ACTION_CHOOSER)
+        val shareChooser = Shadows.shadowOf(app).nextStartedActivity
+        assertThat(shareChooser).isNotNull()
+        assertThat(shareChooser.action).isEqualTo(Intent.ACTION_CHOOSER)
 
-        val sendIntent = IntentCompat.getParcelableExtra(chooser, Intent.EXTRA_INTENT, Intent::class.java)
-        assertThat(sendIntent).isNotNull()
-        assertThat(sendIntent!!.action).isEqualTo(Intent.ACTION_SEND)
-        assertThat(sendIntent.type).isEqualTo("application/pdf")
-        assertThat(sendIntent.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        val shareIntent = IntentCompat.getParcelableExtra(shareChooser, Intent.EXTRA_INTENT, Intent::class.java)
+        assertThat(shareIntent).isNotNull()
+        assertThat(shareIntent!!.action).isEqualTo(Intent.ACTION_SEND)
+        assertThat(shareIntent.type).isEqualTo("application/pdf")
+        assertThat(shareIntent.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION)
             .isEqualTo(Intent.FLAG_GRANT_READ_URI_PERMISSION)
 
-        val uri = IntentCompat.getParcelableExtra(sendIntent, Intent.EXTRA_STREAM, Uri::class.java)
-        assertThat(uri).isNotNull()
-        assertThat(uri!!.authority).isEqualTo("${app.packageName}.file_provider")
-        assertThat(sendIntent.getStringExtra(Intent.EXTRA_SUBJECT)?.uppercase(Locale.FRANCE))
+        val shareUri = IntentCompat.getParcelableExtra(shareIntent, Intent.EXTRA_STREAM, Uri::class.java)
+        assertThat(shareUri).isNotNull()
+        assertThat(shareUri!!.authority).isEqualTo("${app.packageName}.file_provider")
+        assertThat(shareIntent.getStringExtra(Intent.EXTRA_SUBJECT)?.uppercase(Locale.FRANCE))
             .doesNotContain("ALD 100%")
-    }
 
-    @Test
-    fun `sendByEmail attaches PDF when provided and populates email extras`() {
-        val items = sampleItems(2)
-        val pdfFile = generator.generateOrderPdf("Sophie Martin", items)
-
+        // 2. Verify sendByEmail attaches PDF within same Robolectric cacheDir (FileProvider.sCache)
         generator.sendByEmail(
             patientName = "Sophie Martin",
             items = items,
@@ -192,18 +189,38 @@ class StomaOrderReportGeneratorTest {
             recipientEmail = "pharmacie@example.fr"
         )
 
+        val emailChooser = Shadows.shadowOf(app).nextStartedActivity
+        assertThat(emailChooser).isNotNull()
+        val emailIntent = IntentCompat.getParcelableExtra(emailChooser, Intent.EXTRA_INTENT, Intent::class.java)
+        assertThat(emailIntent).isNotNull()
+        assertThat(emailIntent!!.type).isEqualTo("application/pdf")
+        assertThat(emailIntent.getStringArrayExtra(Intent.EXTRA_EMAIL))
+            .asList()
+            .containsExactly("pharmacie@example.fr")
+        assertThat(emailIntent.getStringExtra(Intent.EXTRA_TEXT)).contains("Merci d'avance")
+
+        val emailUri = IntentCompat.getParcelableExtra(emailIntent, Intent.EXTRA_STREAM, Uri::class.java)
+        assertThat(emailUri).isNotNull()
+        assertThat(emailUri!!.authority).isEqualTo("${app.packageName}.file_provider")
+    }
+
+    @Test
+    fun `sendByEmail without attachment uses email mime type and omits stream extra`() {
+        generator.sendByEmail(
+            patientName = "Sophie Martin",
+            items = sampleItems(1),
+            notes = "Sans pièce jointe",
+            attachmentFile = null,
+            recipientEmail = "pharmacie@example.fr"
+        )
+
         val chooser = Shadows.shadowOf(app).nextStartedActivity
         assertThat(chooser).isNotNull()
         val sendIntent = IntentCompat.getParcelableExtra(chooser, Intent.EXTRA_INTENT, Intent::class.java)
         assertThat(sendIntent).isNotNull()
-        assertThat(sendIntent!!.getStringArrayExtra(Intent.EXTRA_EMAIL))
-            .asList()
-            .containsExactly("pharmacie@example.fr")
-        assertThat(sendIntent.getStringExtra(Intent.EXTRA_TEXT)).contains("Merci d'avance")
-
-        val uri = IntentCompat.getParcelableExtra(sendIntent, Intent.EXTRA_STREAM, Uri::class.java)
-        assertThat(uri).isNotNull()
-        assertThat(uri!!.authority).isEqualTo("${app.packageName}.file_provider")
+        assertThat(sendIntent!!.type).isEqualTo("message/rfc822")
+        assertThat(sendIntent.getStringExtra(Intent.EXTRA_TEXT)).contains("Sans pièce jointe")
+        assertThat(IntentCompat.getParcelableExtra(sendIntent, Intent.EXTRA_STREAM, Uri::class.java)).isNull()
     }
 
     @Test
