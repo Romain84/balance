@@ -10,6 +10,8 @@
 package com.health.openscale.core.service
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
 import com.health.openscale.core.data.ActivityLevel
@@ -28,10 +30,38 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.io.OutputStream
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class MedicalReportGeneratorTest {
+
+    private class FakePdfDocumentAdapter : PdfDocumentAdapter {
+        private val bitmaps = mutableListOf<Bitmap>()
+        val finishedPages = mutableListOf<Int>()
+
+        private class Page(val pageNumber: Int, override val canvas: Canvas) : PdfPageHandle
+
+        override fun startPage(width: Int, height: Int, pageNumber: Int): PdfPageHandle {
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            bitmaps.add(bitmap)
+            return Page(pageNumber, Canvas(bitmap))
+        }
+
+        override fun finishPage(page: PdfPageHandle) {
+            finishedPages.add((page as Page).pageNumber)
+        }
+
+        override fun writeTo(out: OutputStream) {
+            val content = "%PDF-1.4\n" + finishedPages.joinToString("\n") { "Page $it" }
+            out.write(content.toByteArray())
+        }
+
+        override fun close() {
+            bitmaps.forEach { if (!it.isRecycled) it.recycle() }
+            bitmaps.clear()
+        }
+    }
 
     private val context: Context get() = ApplicationProvider.getApplicationContext()
 
@@ -47,38 +77,45 @@ class MedicalReportGeneratorTest {
 
     @Test
     fun `generateReport produces valid non-empty PDF file with default data`() {
+        val fakeDoc = FakePdfDocumentAdapter()
         val pdfFile = MedicalReportGenerator.generateReport(
             context = context,
             user = testUser,
             months = 3,
             measurements = emptyList(),
-            checkins = emptyList()
+            checkins = emptyList(),
+            documentFactory = { fakeDoc }
         )
 
         assertThat(pdfFile).isNotNull()
         assertThat(pdfFile.exists()).isTrue()
         assertThat(pdfFile.length()).isGreaterThan(0L)
         assertThat(pdfFile.name).contains("Sophie_Martin")
+        assertThat(fakeDoc.finishedPages).containsExactly(1, 2).inOrder()
     }
 
     @Test
     fun `generateReport handles 7 days period correctly`() {
+        val fakeDoc = FakePdfDocumentAdapter()
         val pdfFile = MedicalReportGenerator.generateReport(
             context = context,
             user = testUser,
             months = 0,
             measurements = emptyList(),
             checkins = emptyList(),
-            periodDays = 7
+            periodDays = 7,
+            documentFactory = { fakeDoc }
         )
 
         assertThat(pdfFile).isNotNull()
         assertThat(pdfFile.exists()).isTrue()
         assertThat(pdfFile.length()).isGreaterThan(0L)
+        assertThat(fakeDoc.finishedPages).containsExactly(1, 2).inOrder()
     }
 
     @Test
     fun `generateReport succeeds with clinical data and health connect summaries`() {
+        val fakeDoc = FakePdfDocumentAdapter()
         val now = System.currentTimeMillis()
         val weightType = MeasurementType(id = 1, identity = MeasurementType.WEIGHT.identity)
         val waterType = MeasurementType(id = 2, identity = MeasurementType.WATER.identity)
@@ -124,11 +161,13 @@ class MedicalReportGeneratorTest {
             hrvSummary = hrv,
             spo2Summary = spo2,
             specialist = "Gastro-entérologue",
-            consultationMotif = "Bilan trimestriel colostomie & endométriose"
+            consultationMotif = "Bilan trimestriel colostomie & endométriose",
+            documentFactory = { fakeDoc }
         )
 
         assertThat(pdfFile).isNotNull()
         assertThat(pdfFile.exists()).isTrue()
         assertThat(pdfFile.length()).isGreaterThan(0L)
+        assertThat(fakeDoc.finishedPages).containsExactly(1, 2).inOrder()
     }
 }

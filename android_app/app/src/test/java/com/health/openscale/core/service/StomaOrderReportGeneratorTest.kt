@@ -11,6 +11,8 @@ package com.health.openscale.core.service
 
 import android.app.Application
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.net.Uri
 import androidx.core.content.IntentCompat
 import androidx.test.core.app.ApplicationProvider
@@ -21,6 +23,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
+import java.io.OutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -29,8 +32,35 @@ import java.util.Locale
 @Config(sdk = [34])
 class StomaOrderReportGeneratorTest {
 
+    private class FakePdfDocumentAdapter : PdfDocumentAdapter {
+        private val bitmaps = mutableListOf<Bitmap>()
+        val finishedPages = mutableListOf<Int>()
+
+        private class Page(val pageNumber: Int, override val canvas: Canvas) : PdfPageHandle
+
+        override fun startPage(width: Int, height: Int, pageNumber: Int): PdfPageHandle {
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            bitmaps.add(bitmap)
+            return Page(pageNumber, Canvas(bitmap))
+        }
+
+        override fun finishPage(page: PdfPageHandle) {
+            finishedPages.add((page as Page).pageNumber)
+        }
+
+        override fun writeTo(out: OutputStream) {
+            val content = "%PDF-1.4\n" + finishedPages.joinToString("\n") { "Page $it rendered" }
+            out.write(content.toByteArray())
+        }
+
+        override fun close() {
+            bitmaps.forEach { if (!it.isRecycled) it.recycle() }
+            bitmaps.clear()
+        }
+    }
+
     private val app: Application get() = ApplicationProvider.getApplicationContext()
-    private val generator by lazy { StomaOrderReportGenerator(app) }
+    private val generator by lazy { StomaOrderReportGenerator(app) { FakePdfDocumentAdapter() } }
 
     private fun sampleItems(count: Int): List<StomaOrderReportGenerator.OrderItem> {
         return (1..count).map { idx ->
@@ -79,19 +109,25 @@ class StomaOrderReportGeneratorTest {
 
     @Test
     fun `generateOrderPdf handles multi-page pagination cleanly for many items`() {
-        val singlePageFile = generator.generateOrderPdf(
+        val singleDoc = FakePdfDocumentAdapter()
+        val singlePageFile = StomaOrderReportGenerator(app) { singleDoc }.generateOrderPdf(
             patientName = "Sophie Martin",
             items = sampleItems(3),
             notes = null
         )
-        val multiPageFile = generator.generateOrderPdf(
+        val singlePageSize = singlePageFile.length()
+
+        val multiDoc = FakePdfDocumentAdapter()
+        val multiPageFile = StomaOrderReportGenerator(app) { multiDoc }.generateOrderPdf(
             patientName = "Sophie Martin",
             items = sampleItems(28),
             notes = "Note multi-lignes : merci de vérifier le stock de supports semi-convexes 15-40mm et de préparer les boîtes complètes pour le retrait."
         )
 
         assertThat(multiPageFile.exists()).isTrue()
-        assertThat(multiPageFile.length()).isGreaterThan(singlePageFile.length())
+        assertThat(singleDoc.finishedPages).containsExactly(1)
+        assertThat(multiDoc.finishedPages.size).isGreaterThan(1)
+        assertThat(multiPageFile.length()).isGreaterThan(singlePageSize)
     }
 
     @Test

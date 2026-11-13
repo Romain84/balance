@@ -18,7 +18,6 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
-import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import androidx.core.content.FileProvider
 import com.health.openscale.core.data.HealthCheckin
@@ -77,9 +76,10 @@ object MedicalReportGenerator {
         spo2Summary: ClinicalSpo2Summary = ClinicalSpo2Summary(),
         specialist: String = "Gastro-entérologue",
         consultationMotif: String = "",
-        periodDays: Int? = null
+        periodDays: Int? = null,
+        documentFactory: () -> PdfDocumentAdapter = { AndroidPdfDocumentAdapter() }
     ): File {
-        val pdfDocument = PdfDocument()
+        val pdfDocument = documentFactory()
         val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE)
         val shortDateFormat = SimpleDateFormat("dd/MM", Locale.FRANCE)
 
@@ -114,8 +114,7 @@ object MedicalReportGenerator {
         val allMedIntakes = medRepo.loadIntakes().filter { it.timestamp >= startDate }
 
         // --- PAGE 1: Synthèse Clinique Décisionnelle Complète ---
-        val pageInfo1 = PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, 1).create()
-        val page1 = pdfDocument.startPage(pageInfo1)
+        val page1 = pdfDocument.startPage(PAGE_WIDTH, PAGE_HEIGHT, 1)
         val canvas1 = page1.canvas
 
         drawPage1(
@@ -144,8 +143,7 @@ object MedicalReportGenerator {
         pdfDocument.finishPage(page1)
 
         // --- PAGE 2: Chronologie Détaillée, Courbes Croisées & Journal d'Alertes ---
-        val pageInfo2 = PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, 2).create()
-        val page2 = pdfDocument.startPage(pageInfo2)
+        val page2 = pdfDocument.startPage(PAGE_WIDTH, PAGE_HEIGHT, 2)
         val canvas2 = page2.canvas
 
         drawPage2(

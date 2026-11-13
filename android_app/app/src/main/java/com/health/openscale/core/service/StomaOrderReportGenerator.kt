@@ -16,7 +16,6 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
-import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import androidx.core.content.FileProvider
 import com.health.openscale.core.data.StomaProduct
@@ -27,7 +26,10 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-class StomaOrderReportGenerator(private val context: Context) {
+class StomaOrderReportGenerator(
+    private val context: Context,
+    private val documentFactory: () -> PdfDocumentAdapter = { AndroidPdfDocumentAdapter() }
+) {
 
     companion object {
         private const val PAGE_WIDTH = 595  // Standard A4 at 72 dpi
@@ -95,14 +97,13 @@ class StomaOrderReportGenerator(private val context: Context) {
         val pages = buildPagePlans(items.size, summaryBlockH)
         val totalPages = pages.size
 
-        val pdfDocument = PdfDocument()
+        val pdfDocument = documentFactory()
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         val totalQty = items.sumOf { it.quantity }
 
         pages.forEachIndexed { pageIndex, plan ->
             val pageNumber = pageIndex + 1
-            val pageInfo = PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, pageNumber).create()
-            val page = pdfDocument.startPage(pageInfo)
+            val page = pdfDocument.startPage(PAGE_WIDTH, PAGE_HEIGHT, pageNumber)
             val canvas = page.canvas
 
             var y: Float
@@ -260,17 +261,17 @@ class StomaOrderReportGenerator(private val context: Context) {
         val summary = buildPlainTextSummary(patientName, items, notes)
         val todayStr = SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE).format(Date())
         val displayPatient = patientName.ifBlank { "Patient" }
-        val hasAttachment = attachmentFile != null && attachmentFile.exists()
+        val existingAttachment = attachmentFile?.takeIf { it.exists() }
 
         val intent = Intent(Intent.ACTION_SEND).apply {
-            type = if (hasAttachment) "application/pdf" else "message/rfc822"
+            type = if (existingAttachment != null) "application/pdf" else "message/rfc822"
             if (!recipientEmail.isNullOrBlank()) {
                 putExtra(Intent.EXTRA_EMAIL, arrayOf(recipientEmail.trim()))
             }
             putExtra(Intent.EXTRA_SUBJECT, "Bon de Commande $HEADER_SUBTITLE - $displayPatient ($todayStr)")
             putExtra(Intent.EXTRA_TEXT, summary)
-            if (hasAttachment && attachmentFile != null) {
-                val uri = getFileUri(attachmentFile)
+            if (existingAttachment != null) {
+                val uri = getFileUri(existingAttachment)
                 putExtra(Intent.EXTRA_STREAM, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
