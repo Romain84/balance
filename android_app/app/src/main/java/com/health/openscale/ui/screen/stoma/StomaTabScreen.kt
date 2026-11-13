@@ -46,6 +46,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -58,7 +59,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavController
+import com.health.openscale.core.data.StomaOrderHistoryRepository
 import com.health.openscale.core.stoma.ClinicalHydrationStatus
 import com.health.openscale.core.stoma.StomaEventType
 import com.health.openscale.core.stoma.StomaTrackingRepository
@@ -75,8 +80,11 @@ fun StomaTabScreen(
 ) {
     val context = LocalContext.current
     val stomaRepo = remember { StomaTrackingRepository(context) }
+    val orderHistoryRepo = remember { StomaOrderHistoryRepository(context) }
     val todaySummary by stomaRepo.todaySummary.collectAsState()
     val allEvents by stomaRepo.eventsFlow.collectAsState()
+    val orderHistory by orderHistoryRepo.ordersFlow.collectAsState()
+    val lastOrder = orderHistory.firstOrNull()
 
     val stomaEvents = remember(allEvents) {
         allEvents.filter { it.type == StomaEventType.POUCH_CHANGE || it.type == StomaEventType.SUPPORT_CHANGE }
@@ -84,10 +92,23 @@ fun StomaTabScreen(
     }
 
     val timeFormat = remember { SimpleDateFormat("dd/MM/yyyy 'à' HH:mm", Locale.FRANCE) }
+    val orderDateFormat = remember { SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE) }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                orderHistoryRepo.loadOrders()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     LaunchedEffect(Unit) {
         sharedViewModel.setTopBarTitle("Stomie")
         sharedViewModel.setTopBarActions(emptyList())
+        orderHistoryRepo.loadOrders()
     }
 
     LazyColumn(
@@ -98,7 +119,7 @@ fun StomaTabScreen(
     ) {
         item { Spacer(modifier = Modifier.height(2.dp)) }
 
-        // 1. Commande de matériel Coloplast Banner
+        // 1. Commande de matériel Banner
         item {
             Card(
                 shape = RoundedCornerShape(16.dp),
@@ -120,17 +141,31 @@ fun StomaTabScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Matériel SenSura® Mio Click",
+                                text = "Matériel de Stomie & Accessoires",
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                                 color = Color.White
                             )
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Supports semi-convexes 15-40mm, poches 60mm & bon pharmacie PDF",
+                            text = "Catalogue personnalisé, estimation des besoins & bon pharmacie PDF",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color(0xFFB0BEC5)
                         )
+                        if (lastOrder != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFF004B7A)
+                            ) {
+                                Text(
+                                    text = "Dernière commande : ${orderDateFormat.format(Date(lastOrder.timestamp))} • ${lastOrder.totalBoxes} boîte${if (lastOrder.totalBoxes > 1) "s" else ""}",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    color = Color(0xFF80DEEA),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
                         Spacer(modifier = Modifier.height(10.dp))
                         Button(
                             onClick = { navController.navigate(Routes.STOMA_ORDER) },
