@@ -28,6 +28,10 @@ class StomaProductRepository @Inject constructor(
     private val file: File
         get() = File(context.filesDir, "stoma_catalog.json")
 
+    private val defaultProductsById: Map<String, StomaProduct> by lazy {
+        StomaCatalog.DEFAULT_PRODUCTS.associateBy { it.id }
+    }
+
     private val _products = MutableStateFlow<List<StomaProduct>>(emptyList())
     val products: StateFlow<List<StomaProduct>> = _products.asStateFlow()
 
@@ -39,24 +43,48 @@ class StomaProductRepository @Inject constructor(
     fun loadProducts(): List<StomaProduct> {
         val loaded = try {
             if (file.exists()) {
-                val jsonStr = file.readText()
+                val jsonStr = file.readText(Charsets.UTF_8)
                 val jsonArray = JSONArray(jsonStr)
                 val list = mutableListOf<StomaProduct>()
+                var needsMigration = false
                 for (i in 0 until jsonArray.length()) {
                     val obj = jsonArray.getJSONObject(i)
-                    list.add(
-                        StomaProduct(
-                            id = obj.optString("id", UUID.randomUUID().toString()),
-                            ref = obj.optString("ref", ""),
-                            name = obj.optString("name", ""),
-                            detail = obj.optString("detail", ""),
-                            gtin = obj.optString("gtin", ""),
-                            category = obj.optString("category", "Autre"),
-                            defaultQty = obj.optInt("defaultQty", 1)
-                        )
+                    val id = if (obj.isNull("id")) {
+                        UUID.randomUUID().toString()
+                    } else {
+                        obj.optString("id", "").ifBlank { UUID.randomUUID().toString() }
+                    }
+                    val hasPresetField = obj.has("monthlyPresetQty")
+                    val presetQty = if (hasPresetField) {
+                        obj.optInt("monthlyPresetQty", 0)
+                    } else {
+                        needsMigration = true
+                        defaultProductsById[id]?.monthlyPresetQty ?: 0
+                    }
+                    val rawProduct = StomaProduct(
+                        id = id,
+                        ref = obj.optString("ref", ""),
+                        name = obj.optString("name", ""),
+                        detail = obj.optString("detail", ""),
+                        gtin = obj.optString("gtin", ""),
+                        category = obj.optString("category", "Autre"),
+                        defaultQty = obj.optInt("defaultQty", 1),
+                        monthlyPresetQty = presetQty
                     )
+                    val normalized = StomaCatalog.normalizeProduct(rawProduct)
+                    if (normalized != rawProduct) {
+                        needsMigration = true
+                    }
+                    list.add(normalized)
                 }
-                if (list.isNotEmpty()) list else StomaCatalog.DEFAULT_PRODUCTS
+                if (list.isNotEmpty()) {
+                    if (needsMigration) {
+                        saveInternal(list)
+                    }
+                    list
+                } else {
+                    StomaCatalog.DEFAULT_PRODUCTS
+                }
             } else {
                 saveInternal(StomaCatalog.DEFAULT_PRODUCTS)
                 StomaCatalog.DEFAULT_PRODUCTS
@@ -70,8 +98,9 @@ class StomaProductRepository @Inject constructor(
 
     @Synchronized
     fun saveProducts(list: List<StomaProduct>) {
-        saveInternal(list)
-        _products.value = list
+        val normalized = list.map { StomaCatalog.normalizeProduct(it) }
+        saveInternal(normalized)
+        _products.value = normalized
     }
 
     private fun saveInternal(list: List<StomaProduct>) {
@@ -86,14 +115,12 @@ class StomaProductRepository @Inject constructor(
                     put("gtin", p.gtin)
                     put("category", p.category)
                     put("defaultQty", p.defaultQty)
+                    put("monthlyPresetQty", p.monthlyPresetQty)
                 }
                 jsonArray.put(obj)
             }
             val tempFile = File(context.filesDir, "stoma_catalog.json.tmp")
-            tempFile.writeText(jsonArray.toString(2))
-            if (tempFile.exists()) {
-                tempFile.renameTo(file)
-            }
+            writeTextAtomically(file, tempFile, jsonArray.toString(2))
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -101,17 +128,18 @@ class StomaProductRepository @Inject constructor(
 
     fun addProduct(product: StomaProduct) {
         val current = _products.value.toMutableList()
-        current.add(product)
+        current.add(StomaCatalog.normalizeProduct(product))
         saveProducts(current)
     }
 
     fun updateProduct(product: StomaProduct) {
+        val normalized = StomaCatalog.normalizeProduct(product)
         val current = _products.value.toMutableList()
-        val index = current.indexOfFirst { it.id == product.id }
+        val index = current.indexOfFirst { it.id == normalized.id }
         if (index >= 0) {
-            current[index] = product
+            current[index] = normalized
         } else {
-            current.add(product)
+            current.add(normalized)
         }
         saveProducts(current)
     }
@@ -124,4 +152,17 @@ class StomaProductRepository @Inject constructor(
     fun resetToDefaults() {
         saveProducts(StomaCatalog.DEFAULT_PRODUCTS)
     }
+
+    fun saveCustomPreset(quantities: Map<String, Int>) {
+        StomaCustomPresetStore.save(context.filesDir, quantities)
+    }
+
+    fun loadCustomPreset(): Map<String, Int> =
+        StomaCustomPresetStore.load(context.filesDir)
+
+    fun hasCustomPreset(): Boolean =
+        StomaCustomPresetStore.hasPreset(context.filesDir)
+
+    fun getEffectiveMonthlyPreset(): Map<String, Int> =
+        loadCustomPreset().ifEmpty { StomaCatalog.getDefaultMonthlyPreset() }
 }
